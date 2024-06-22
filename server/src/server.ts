@@ -164,7 +164,17 @@ async function validateTextDocument(textDocument: TextDocument): Promise<Diagnos
 						start: textDocument.positionAt(e.src.start),
 						end: textDocument.positionAt(e.src.end)
 					},
-					message: e.message
+					message: e.message,
+					relatedInformation: e.details?.map(({ message, src }) => ({
+						message,
+						location: {
+							uri: textDocument.uri,
+							range: {
+								start: textDocument.positionAt(src.start),
+								end: textDocument.positionAt(src.end)
+							}
+						},
+					}))
 				})
 			},
 			parsed.parsed

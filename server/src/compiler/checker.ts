@@ -1,8 +1,9 @@
-import { AST, BinaryOperationExpression, Expression, Module, TypeExpression } from './parser'
+import { AST, Expression, TypeExpression } from './parser'
 import { ParseSource } from './parser-combinators'
-import { Type, displayType, inferType, number, opSignatures, resolveDeclaration, resolveType, string, subsumationIssues, subsumes } from './types'
+import { Type, displayType, inferType, opSignatures, resolveDeclaration, resolveType, subsumationIssues, subsumes } from './types'
+import { zip } from './utils'
 
-export type CheckerError = { message: string, src: ParseSource }
+export type CheckerError = { message: string, src: ParseSource, details?: { message: string, src: ParseSource }[] }
 
 export type CheckContext = {
 	error: (err: CheckerError) => void
@@ -19,10 +20,14 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 
 		const checkAssignment = (destination: TypeExpression | undefined, value: Expression) => {
 			if (destination != null) {
-				const [firstIssue] = subsumationIssues({ to: resolveType(destination), from: inferType(value) })
+				const [firstIssue, ...rest] = subsumationIssues({ to: resolveType(destination), from: inferType(value) })
 
 				if (firstIssue) {
-					error({ message: firstIssue, src: value.src })
+					error({
+						message: firstIssue,
+						src: value.src,
+						details: rest.map(message => ({ message, src: value.src })),  // TODO: more granular location info
+					})
 				}
 			}
 		}
@@ -32,12 +37,57 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 				check(ctx, ast.declarations)
 			} break
 			case 'const-declaration': {
-				checkAssignment(ast.type, ast.value)
-				check(ctx, ast.type)
+				checkAssignment(ast.declared.type, ast.value)
+				check(ctx, ast.declared)
 				check(ctx, ast.value)
+			} break
+			case 'function-type-expression': {
+				check(ctx, ast.params)
+				check(ctx, ast.returns)
 			} break
 			case 'union-type-expression': {
 				check(ctx, ast.members)
+			} break
+			case 'function-expression': {
+				// TODO: Lots of stuff
+				check(ctx, ast.args)
+				check(ctx, ast.returnType)
+				check(ctx, ast.body)
+			} break
+			case 'name-and-type': {
+				check(ctx, ast.name)
+				check(ctx, ast.type)
+			} break
+			case 'invocation': {
+				const subjectType = inferType(ast.subject)
+
+				if (subjectType.kind !== 'function-type') {
+					error({
+						message: 'Can\'t call this because it isn\'t a function',
+						src: ast.subject.src
+					})
+				} else {
+					if (ast.args.length !== subjectType.params.length) {
+						error({
+							message: `Expected ${subjectType.params.length} arguments, but received ${ast.args.length}`,
+							src: ast.src
+						})
+					}
+
+					for (const [expectedType, argExpression] of zip(subjectType.params, ast.args, 'truncate')) {
+						const providedType = inferType(argExpression)
+
+						if (!subsumes({ to: expectedType as Type, from: providedType })) { // TODO
+							error({
+								message: `${displayType(providedType)} cannot be passed to parameter expecting type ${displayType(expectedType as Type)}`, // TODO
+								src: argExpression.src
+							})
+						}
+					}
+				}
+
+				check(ctx, ast.subject)
+				check(ctx, ast.args)
 			} break
 			case 'binary-operation-expression': {
 				const leftType = inferType(ast.left)
@@ -80,7 +130,7 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 				check(ctx, ast.condition)
 				check(ctx, ast.outcome)
 			} break
-			case 'identifier': {
+			case 'local-identifier': {
 				if (!resolveDeclaration(ast.identifier, ast)) {
 					error({
 						message: `Couldn't resolve identifier ${ast.identifier}`,
@@ -97,6 +147,7 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 			case 'number-literal':
 			case 'boolean-literal':
 			case 'nil-literal':
+			case 'plain-identifier':
 				break // nothing to check
 			default:
 				// @ts-expect-error kind should be of type `never`

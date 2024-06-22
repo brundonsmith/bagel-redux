@@ -1,5 +1,5 @@
 import test from 'ava'
-import { AST, arrayLiteral, booleanLiteral, identifier, nilLiteral, numberLiteral, objectLiteral, stringLiteral } from './parser'
+import { AST, arrayLiteral, booleanLiteral, localIdentifier, nilLiteral, numberLiteral, objectLiteral, stringLiteral } from './parser'
 import { Parser } from './parser-combinators'
 
 function testCompleteParse<T extends AST>(name: string, fn: Parser<T, unknown>, code: string, parsed: T) {
@@ -24,7 +24,7 @@ function testCompleteParse<T extends AST>(name: string, fn: Parser<T, unknown>, 
 
 const src = (code: string) => ({ code, start: 0, end: code.length })
 
-testCompleteParse('identifier', identifier, 'a', { kind: 'identifier', identifier: 'a', src: src('a') })
+testCompleteParse('local identifier', localIdentifier, 'a', { kind: 'local-identifier', identifier: 'a', src: src('a') })
 testCompleteParse('nil literal', nilLiteral, 'nil', { kind: 'nil-literal', src: src('nil') })
 testCompleteParse('boolean literal false', booleanLiteral, 'false', { kind: 'boolean-literal', value: false, src: src('false') })
 testCompleteParse('boolean literal true', booleanLiteral, 'true', { kind: 'boolean-literal', value: true, src: src('true') })

@@ -1,9 +1,11 @@
 import { AST } from './parser'
+import { todo } from './utils'
 
 export const compile = (ast: AST): string => {
 	switch (ast.kind) {
 		case 'module': return ast.declarations.map(compile).join('\n\n')
-		case 'const-declaration': return `const ${compile(ast.name)}${ast.type ? `: ${compile(ast.type)}` : ''} = ${compile(ast.value)}`
+		case 'const-declaration': return `const ${compile(ast.declared)} = ${compile(ast.value)}`
+		case 'function-type-expression': return `(${ast.params.map((p, i) => `param${i}: ${compile(p)}`)}) => ${compile(ast.returns)}`
 		case 'union-type-expression': return ast.members.map(compile).join(' | ')
 		case 'object-type-expression': return (
 			Array.isArray(ast.entries)
@@ -26,6 +28,9 @@ export const compile = (ast: AST): string => {
 		case 'boolean-type-expression': return String(ast.value ?? 'boolean')
 		case 'nil-type-expression': return 'null | undefined'
 		case 'unknown-type-expression': return 'unknown'
+		case 'function-expression': return todo()
+		case 'name-and-type': return compile(ast.name) + (ast.type ? `: ${compile(ast.type)}` : '')
+		case 'invocation': return `${compile(ast.subject)}(${ast.args.map(compile).join(', ')})`
 		case 'binary-operation-expression': return `${compile(ast.left)} ${ast.op} ${compile(ast.right)}`
 		case 'if-else-expression': return `${ast.cases.map(compile).join('')} ${ast.defaultCase ? compile(ast.defaultCase) : NIL}`
 		case 'if-else-expression-case': return `${compile(ast.condition)} ? ${compile(ast.outcome)} :`
@@ -35,7 +40,9 @@ export const compile = (ast: AST): string => {
 		case 'number-literal': return String(ast.value)
 		case 'boolean-literal': return String(ast.value)
 		case 'nil-literal': return NIL
-		case 'identifier': return ast.identifier
+		case 'local-identifier':
+		case 'plain-identifier':
+			return ast.identifier
 	}
 }
 
