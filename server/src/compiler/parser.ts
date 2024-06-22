@@ -6,12 +6,17 @@ export type AST =
 	| Module
 	| Declaration
 	| TypeExpression
+	| KeyValueTypeExpression
+	| SpreadTypeExpression
 	| Expression
+	| KeyValueExpression
+	| SpreadExpression
+	| IfElseExpressionCase
 
 export type Module = {
 	kind: 'module',
 	declarations: Declaration[]
-}
+} & ASTInfo
 
 export type Declaration =
 	| ConstDeclaration
@@ -29,8 +34,10 @@ export type TypeExpression =
 	| UnknownTypeExpression
 
 export type UnionTypeExpression = { kind: 'union-type-expression', members: TypeExpression[] } & ASTInfo
-export type ObjectTypeExpression = { kind: 'object-type-expression', entries: { key: TypeExpression, value: TypeExpression }[] | { key: TypeExpression, value: TypeExpression } } & ASTInfo
-export type ArrayTypeExpression = { kind: 'array-type-expression', elements: TypeExpression[] | TypeExpression } & ASTInfo
+export type ObjectTypeExpression = { kind: 'object-type-expression', entries: Array<KeyValueTypeExpression | SpreadTypeExpression> | KeyValueTypeExpression } & ASTInfo
+export type KeyValueTypeExpression = { kind: 'key-value-type-expression', key: TypeExpression, value: TypeExpression } & ASTInfo
+export type ArrayTypeExpression = { kind: 'array-type-expression', elements: Array<TypeExpression | SpreadTypeExpression> | TypeExpression } & ASTInfo
+export type SpreadTypeExpression = { kind: 'spread-type-expression', spread: TypeExpression } & ASTInfo
 export type StringTypeExpression = { kind: 'string-type-expression', value: string | undefined } & ASTInfo
 export type NumberTypeExpression = { kind: 'number-type-expression', value: number | undefined } & ASTInfo
 export type BooleanTypeExpression = { kind: 'boolean-type-expression', value: boolean | undefined } & ASTInfo
@@ -38,6 +45,8 @@ export type NilTypeExpression = { kind: 'nil-type-expression' } & ASTInfo
 export type UnknownTypeExpression = { kind: 'unknown-type-expression' } & ASTInfo
 
 export type Expression =
+	| BinaryOperationExpression
+	| IfElseExpression
 	| ObjectLiteral
 	| ArrayLiteral
 	| StringLiteral
@@ -46,8 +55,13 @@ export type Expression =
 	| NilLiteral
 	| Identifier
 
-export type ObjectLiteral = { kind: 'object-literal', entries: { key: StringLiteral, value: Expression }[] } & ASTInfo
-export type ArrayLiteral = { kind: 'array-literal', elements: Expression[] } & ASTInfo
+export type BinaryOperationExpression = { kind: 'binary-operation-expression', left: Expression, op: '+' | '-' | '*' | '/', right: Expression } & ASTInfo
+export type IfElseExpression = { kind: 'if-else-expression', cases: IfElseExpressionCase[], defaultCase: Expression | undefined } & ASTInfo
+export type IfElseExpressionCase = { kind: 'if-else-expression-case', condition: Expression, outcome: Expression } & ASTInfo
+export type ObjectLiteral = { kind: 'object-literal', entries: Array<KeyValueExpression | SpreadExpression> } & ASTInfo
+export type KeyValueExpression = { kind: 'key-value-expression', key: StringLiteral, value: Expression } & ASTInfo
+export type ArrayLiteral = { kind: 'array-literal', elements: Array<Expression | SpreadExpression> } & ASTInfo
+export type SpreadExpression = { kind: 'spread-expression', spread: Expression } & ASTInfo
 export type StringLiteral = { kind: 'string-literal', value: string } & ASTInfo
 export type NumberLiteral = { kind: 'number-literal', value: number } & ASTInfo
 export type BooleanLiteral = { kind: 'boolean-literal', value: boolean } & ASTInfo
@@ -73,11 +87,17 @@ const nil = exact('nil')
 
 export const parseModule: Parser<Module, BagelParseError> = input => map(
 	tuple(whitespace, manySep0(declaration, whitespace), whitespace),
-	([_0, declarations, _1], src) => ({
-		kind: 'module',
-		declarations,
-		src
-	} as const)
+	([_0, declarations, _1], src) => {
+		const module = {
+			kind: 'module',
+			declarations,
+			src
+		} as const
+
+		parentChildren(module)
+
+		return module
+	}
 )(input)
 
 export const declaration: Parser<Declaration, BagelParseError> = input => oneOf(
@@ -103,7 +123,7 @@ export const constDeclaration: Parser<ConstDeclaration, BagelParseError> = input
 		whitespace,
 		required(exact('='), () => 'Expected ='),
 		whitespace,
-		required(expression, () => 'Expected value'),
+		required(expression() as Parser<Expression, BagelParseError>, () => 'Expected value'),
 	),
 	([_0, _1, name, _2, type, _3, _4, _5, value], src) => ({
 		kind: 'const-declaration',
@@ -115,7 +135,7 @@ export const constDeclaration: Parser<ConstDeclaration, BagelParseError> = input
 )(input)
 
 export const unionTypeExpression: Parser<UnionTypeExpression, BagelParseError> = input => map(
-	manySep2(typeExpression(stringTypeExpression) as Parser<TypeExpression, BagelParseError>, tuple(whitespace, exact('|'), whitespace)),
+	manySep2(typeExpression(unionTypeExpression) as Parser<TypeExpression, BagelParseError>, tuple(whitespace, exact('|'), whitespace)),
 	(members, src) => ({
 		kind: 'union-type-expression',
 		members,
@@ -183,37 +203,101 @@ export const typeExpression = precedence(
 	nilTypeExpression
 )
 
-export const expression: Parser<Expression, BagelParseError> = input => oneOf(
-	objectLiteral,
-	arrayLiteral,
-	stringLiteral,
-	numberLiteral,
-	booleanLiteral,
-	nilLiteral,
-	identifier
+const plusOrMinusOperation: Parser<BinaryOperationExpression, BagelParseError> = input => map(
+	tuple(expression(plusOrMinusOperation), whitespace, oneOf(exact('+'), exact('-')), whitespace, expression(plusOrMinusOperation)),
+	([left, _0, op, _1, right], src) => ({
+		kind: 'binary-operation-expression',
+		left,
+		op,
+		right,
+		src
+	} as const)
+)(input)
+
+const timesOrDivOperation: Parser<BinaryOperationExpression, BagelParseError> = input => map(
+	tuple(expression(timesOrDivOperation), whitespace, oneOf(exact('*'), exact('/')), whitespace, expression(timesOrDivOperation)),
+	([left, _0, op, _1, right], src) => ({
+		kind: 'binary-operation-expression',
+		left,
+		op,
+		right,
+		src
+	} as const)
+)(input)
+
+export const ifElseExpression: Parser<IfElseExpression, BagelParseError> = input => map(
+	tuple(
+		manySep1(ifCase, tuple(whitespace, exact('else '), whitespace)),
+		whitespace,
+		optional(
+			map(
+				tuple(
+					exact('else'),
+					whitespace,
+					exact('{'),
+					whitespace,
+					expression(),
+					whitespace,
+					exact('}')
+				),
+				([_0, _1, _2, _3, outcome, _4, _5]) => outcome
+			)
+		)
+	),
+	([cases, _0, defaultCase], src) => ({
+		kind: 'if-else-expression',
+		cases,
+		defaultCase,
+		src
+	} as const)
+)(input)
+
+const ifCase: Parser<IfElseExpressionCase, BagelParseError> = input => map(
+	tuple(
+		exact('if '), // at least one space
+		whitespace,
+		expression(),
+		whitespace,
+		exact('{'),
+		whitespace,
+		expression(),
+		whitespace,
+		exact('}'),
+	),
+	([_0, _1, condition, _2, _3, _4, outcome, _5, _6], src) => ({
+		kind: 'if-else-expression-case',
+		condition,
+		outcome,
+		src
+	} as const)
 )(input)
 
 export const objectLiteral: Parser<ObjectLiteral, BagelParseError> = input => map(
 	tuple(
 		exact('{'),
 		whitespace,
-		manySep0(
-			map(
-				tuple(
-					oneOf(identifier, stringLiteral),
-					whitespace,
-					exact(':'),
-					whitespace,
-					expression
-				),
-				([key, _0, _1, _2, value]) => ({
-					key: (
-						key.kind === 'identifier'
-							? { kind: 'string-literal', value: key.identifier, src: key.src } as const
-							: key
+		manySep0<KeyValueExpression | SpreadExpression, string, BagelParseError>(
+			oneOf(
+				spreadExpression,
+				map(
+					tuple(
+						oneOf(identifier, stringLiteral),
+						whitespace,
+						exact(':'),
+						whitespace,
+						expression()
 					),
-					value
-				})
+					([key, _0, _1, _2, value], src) => ({
+						kind: 'key-value-expression',
+						key: (
+							key.kind === 'identifier'
+								? { kind: 'string-literal', value: key.identifier, src: key.src } as const
+								: key
+						),
+						value,
+						src
+					} as const)
+				)
 			),
 			tuple(whitespace, exact(','), whitespace)
 		),
@@ -231,7 +315,7 @@ export const arrayLiteral: Parser<ArrayLiteral, BagelParseError> = input => map(
 	tuple(
 		exact('['),
 		whitespace,
-		manySep0(expression, tuple(whitespace, exact(','), whitespace)),
+		manySep0<Expression | SpreadExpression, string, BagelParseError>(oneOf(spreadExpression, expression()), tuple(whitespace, exact(','), whitespace)),
 		whitespace,
 		required(exact(']'), () => 'Expected \'}\'')
 	),
@@ -242,7 +326,19 @@ export const arrayLiteral: Parser<ArrayLiteral, BagelParseError> = input => map(
 	} as const)
 )(input)
 
-export const stringLiteral: Parser<StringLiteral> = map(
+export const spreadExpression: Parser<SpreadExpression, BagelParseError> = input => map(
+	tuple(
+		exact('...'),
+		required(expression() as Parser<Expression, BagelParseError>, () => 'Expected spread expression')
+	),
+	([_0, spread], src) => ({
+		kind: 'spread-expression',
+		spread,
+		src
+	} as const)
+)(input)
+
+export const stringLiteral: Parser<StringLiteral, BagelParseError> = map(
 	string,
 	(value, src) => ({
 		kind: 'string-literal',
@@ -251,7 +347,7 @@ export const stringLiteral: Parser<StringLiteral> = map(
 	} as const)
 )
 
-export const numberLiteral: Parser<NumberLiteral> = map(
+export const numberLiteral: Parser<NumberLiteral, BagelParseError> = map(
 	number,
 	(parsed, src) => ({
 		kind: 'number-literal',
@@ -260,7 +356,7 @@ export const numberLiteral: Parser<NumberLiteral> = map(
 	} as const)
 )
 
-export const booleanLiteral: Parser<BooleanLiteral> = map(
+export const booleanLiteral: Parser<BooleanLiteral, BagelParseError> = map(
 	boolean,
 	(parsed, src) => ({
 		kind: 'boolean-literal',
@@ -269,7 +365,7 @@ export const booleanLiteral: Parser<BooleanLiteral> = map(
 	} as const)
 )
 
-export const nilLiteral: Parser<NilLiteral> = map(
+export const nilLiteral: Parser<NilLiteral, BagelParseError> = map(
 	nil,
 	(_, src) => ({
 		kind: 'nil-literal',
@@ -277,7 +373,7 @@ export const nilLiteral: Parser<NilLiteral> = map(
 	} as const)
 )
 
-export const identifier: Parser<Identifier> = map(
+export const identifier: Parser<Identifier, BagelParseError> = map(
 	take1(alphaChar),
 	(parsed, src) => ({
 		kind: 'identifier',
@@ -286,12 +382,25 @@ export const identifier: Parser<Identifier> = map(
 	} as const)
 )
 
+export const expression = precedence(
+	plusOrMinusOperation,
+	timesOrDivOperation,
+	ifElseExpression,
+	objectLiteral,
+	arrayLiteral,
+	stringLiteral,
+	numberLiteral,
+	booleanLiteral,
+	nilLiteral,
+	identifier
+)
+
 const parentChildren = (ast: AST) => {
 	for (const key in ast as any) {
 		// @ts-expect-error sdfgsdfg
 		const value = ast[key as any] as any
 
-		if (value != null && typeof value === 'object') {
+		if (key !== 'parent' && value != null && typeof value === 'object') {
 			if (Array.isArray(value)) {
 				for (const el of value) {
 					el.parent = ast

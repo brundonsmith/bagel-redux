@@ -248,11 +248,14 @@ export const tuple = <
  * - Succeeds even if nothing is found
  */
 export const manySep0 = <TParsed, TError1, TError2>(item: Parser<TParsed, TError1>, sep: Parser<unknown, TError2> | undefined): Parser<TParsed[], TError1 | TError2> => input => {
+	let nextInputBeforeSep = input
 	let nextInput = input
 	const items: TParsed[] = []
 
 	// eslint-disable-next-line no-constant-condition
 	while (true) {
+		nextInputBeforeSep = nextInput
+
 		if (items.length > 0 && sep != null) {
 			const sepResult = sep(nextInput)
 
@@ -269,7 +272,7 @@ export const manySep0 = <TParsed, TError1, TError2>(item: Parser<TParsed, TError
 		const itemResult = item(nextInput)
 
 		if (itemResult == null) {
-			return { kind: 'success', parsed: items, input: nextInput, src: { code: input.code, start: input.index, end: nextInput.index } }
+			return { kind: 'success', parsed: items, input: nextInputBeforeSep, src: { code: input.code, start: input.index, end: nextInputBeforeSep.index } }
 		} else if (itemResult.kind === 'error') {
 			return itemResult
 		} else {
@@ -334,11 +337,11 @@ export const take1 = <TError>(chParser: Parser<string, TError>): Parser<string, 
 export const precedence = <TParsers extends Parser<unknown, unknown>[]>(
 	...levels: TParsers
 ) => (
-	startingFrom?: TParsers[number]
+	startingAfter?: TParsers[number]
 ): TParsers[number] =>
-		startingFrom == null
+		startingAfter == null
 			? oneOf(...levels)
-			: oneOf(...levels.slice(levels.indexOf(startingFrom) + 1))
+			: oneOf(...levels.slice(levels.indexOf(startingAfter) + 1))
 
 /**
  * Any amount of whitespace (or none)

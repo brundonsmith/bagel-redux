@@ -4,7 +4,7 @@ import { Type, inferType } from './types'
 
 function testInferType(code: string, expectedType: Type) {
 	test(code, t => {
-		const parseResult = expression({ code, index: 0 })
+		const parseResult = expression()({ code, index: 0 })
 		if (parseResult?.kind !== 'success') {
 			throw Error('Failed to parse code: ' + code)
 		}
@@ -32,14 +32,17 @@ testInferType('[true, 12, nil]', {
 testInferType('{ a: true, b: 12, c: nil }', {
 	kind: 'object-type', entries: [
 		{
+			kind: 'key-value-type',
 			key: { kind: 'string-type', value: 'a' },
 			value: { kind: 'boolean-type', value: true }
 		},
 		{
+			kind: 'key-value-type',
 			key: { kind: 'string-type', value: 'b' },
 			value: { kind: 'number-type', value: 12 }
 		},
 		{
+			kind: 'key-value-type',
 			key: { kind: 'string-type', value: 'c' },
 			value: { kind: 'nil-type' }
 		}

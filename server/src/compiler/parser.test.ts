@@ -43,16 +43,22 @@ testCompleteParse('object literal', objectLiteral, '{ a: true, b: 12, c: nil }',
   kind: 'object-literal',
   entries: [
     {
+      kind: 'key-value-expression',
       key: { kind: 'string-literal', value: 'a', src: { code: '{ a: true, b: 12, c: nil }', start: 2, end: 3 } },
-      value: { kind: 'boolean-literal', value: true, src: { code: '{ a: true, b: 12, c: nil }', start: 5, end: 9 } }
+      value: { kind: 'boolean-literal', value: true, src: { code: '{ a: true, b: 12, c: nil }', start: 5, end: 9 } },
+      src: { code: '{ a: true, b: 12, c: nil }', start: 2, end: 9 }
     },
     {
+      kind: 'key-value-expression',
       key: { kind: 'string-literal', value: 'b', src: { code: '{ a: true, b: 12, c: nil }', start: 11, end: 12 } },
-      value: { kind: 'number-literal', value: 12, src: { code: '{ a: true, b: 12, c: nil }', start: 14, end: 16 } }
+      value: { kind: 'number-literal', value: 12, src: { code: '{ a: true, b: 12, c: nil }', start: 14, end: 16 } },
+      src: { code: '{ a: true, b: 12, c: nil }', start: 11, end: 16 }
     },
     {
+      kind: 'key-value-expression',
       key: { kind: 'string-literal', value: 'c', src: { code: '{ a: true, b: 12, c: nil }', start: 18, end: 19 } },
-      value: { kind: 'nil-literal', src: { code: '{ a: true, b: 12, c: nil }', start: 21, end: 24 } }
+      value: { kind: 'nil-literal', src: { code: '{ a: true, b: 12, c: nil }', start: 21, end: 24 } },
+      src: { code: '{ a: true, b: 12, c: nil }', start: 18, end: 24 }
     }
   ],
   src: src('{ a: true, b: 12, c: nil }')
