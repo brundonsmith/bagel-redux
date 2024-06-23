@@ -41,6 +41,9 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 				check(ctx, ast.declared)
 				check(ctx, ast.value)
 			} break
+			case 'typeof-type-expression': {
+				check(ctx, ast.expression)
+			} break
 			case 'function-type-expression': {
 				check(ctx, ast.params)
 				check(ctx, ast.returns)

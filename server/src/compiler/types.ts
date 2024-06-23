@@ -1,4 +1,4 @@
-import { AST, BinaryOperationExpression, ConstDeclaration, Declaration, Expression, NameAndType, TypeExpression } from './parser'
+import { AST, BinaryOperationExpression, ConstDeclaration, Declaration, Expression, NameAndType, Range, TypeExpression } from './parser'
 import { todo, zip } from './utils'
 
 export type Type =
@@ -7,7 +7,7 @@ export type Type =
 	| { kind: 'object-type', entries: Array<KeyValueType | SpreadType> | KeyValueType }
 	| { kind: 'array-type', elements: Array<Type | SpreadType> | Type }
 	| { kind: 'string-type', value: string | undefined }
-	| { kind: 'number-type', value: number | undefined }
+	| { kind: 'number-type', value: Range | number | undefined }
 	| { kind: 'boolean-type', value: boolean | undefined }
 	| { kind: 'nil-type' }
 	| { kind: 'unknown-type' }
@@ -21,9 +21,9 @@ export type Type =
 
 // convenience
 export const union = (...members: Type[]): Type => ({ kind: 'union-type', members } as const)
-export const literal = (value: string | number | boolean): Type => (
+export const literal = (value: string | Range | number | boolean): Type => (
 	typeof value === 'string' ? { kind: 'string-type', value } :
-		typeof value === 'number' ? { kind: 'number-type', value } :
+		typeof value === 'number' || typeof value === 'object' ? { kind: 'number-type', value } :
 			{ kind: 'boolean-type', value }
 )
 export const string = { kind: 'string-type', value: undefined } as const
@@ -54,6 +54,53 @@ export const opSignatures = {
 export type KeyValueType = { kind: 'key-value-type', key: Type, value: Type }
 export type SpreadType = { kind: 'spread-type', spread: Type }
 
+const opOnRange = (operator: '+' | '-' | '*' | '/', left: Range | number | undefined, right: Range | number | undefined): Range | number | undefined => {
+	if (left == null || right == null) {
+		return undefined
+	}
+
+	const op = tolerantOp(baseOperatorFns[operator])
+
+	switch (typeof left) {
+		case 'number':
+			switch (typeof right) {
+				case 'number': return op(left, right)
+				case 'object': return {
+					start: op(left, right.start),
+					end: op(left, right.end),
+				} as Range
+			}
+		// eslint-disable-next-line no-fallthrough
+		case 'object':
+			switch (typeof right) {
+				case 'number': return {
+					start: op(left.start, right),
+					end: op(left.end, right),
+				} as Range
+				case 'object': return {
+					start: op(left.start, right.start),
+					end: op(left.end, right.end),
+				} as Range
+			}
+	}
+}
+
+const tolerantOp = <T>(fn: (left: T, right: T) => T) => (left: T | undefined, right: T | undefined): T | undefined => {
+	if (left == null || right == null) {
+		return undefined
+	} else {
+		return fn(left, right)
+	}
+}
+
+const baseOperatorFns = {
+	// @ts-expect-error we can add string | number together
+	'+': (left: number | string, right: number | string) => left + right,
+	'-': (left: number, right: number) => left - right,
+	'*': (left: number, right: number) => left * right,
+	'/': (left: number, right: number) => left / right,
+} as const
+
 export const inferType = (expression: Expression): Type => {
 	switch (expression.kind) {
 		case 'function-expression': {
@@ -76,29 +123,28 @@ export const inferType = (expression: Expression): Type => {
 			const rightType = inferType(expression.right)
 
 			// special paths for computing exact literal types
-			if (
-				expression.op === '+'
-			) {
-				if (
-					(leftType.kind === 'string-type' || leftType.kind === 'number-type') &&
-					leftType.value != null &&
-					(rightType.kind === 'string-type' || rightType.kind === 'number-type') &&
-					rightType.value != null
-				) {
-					// @ts-expect-error we can add string | number together
-					const value: string | number = leftType.value + rightType.value
-					return literal(value)
+			if (leftType.kind === 'number-type' && rightType.kind === 'number-type') {
+				if (expression.op === '+' || expression.op === '-' || expression.op === '*' || expression.op === '/') {
+					const value = opOnRange(expression.op, leftType.value, rightType.value)
+
+					if (value != null) {
+						return literal(value)
+					}
 				}
 			} else if (
-				leftType.kind === 'number-type' &&
-				leftType.value != null &&
-				rightType.kind === 'number-type' &&
-				rightType.value != null
+				expression.op === '+' &&
+				(leftType.kind === 'string-type' || leftType.kind === 'number-type') &&
+				(rightType.kind === 'string-type' || rightType.kind === 'number-type')
 			) {
-				switch (expression.op) {
-					case '-': return literal(leftType.value - rightType.value)
-					case '*': return literal(leftType.value * rightType.value)
-					case '/': return literal(leftType.value / rightType.value)
+				// number + number is handled in previous path, this one is only strings
+
+				// TODO: Once we support template strings we can do something meaningful here with number ranges
+				if (typeof leftType.value !== 'object' && typeof rightType.value !== 'object') {
+					const value = tolerantOp(baseOperatorFns['+'])(leftType.value, rightType.value)
+
+					if (value != null) {
+						return literal(value)
+					}
 				}
 			}
 
@@ -190,6 +236,7 @@ export const resolveDeclaration = (name: string, at: AST | undefined): ConstDecl
 
 export const resolveType = (typeExpression: TypeExpression): Type => {
 	switch (typeExpression.kind) {
+		case 'typeof-type-expression': return inferType(typeExpression.expression)
 		case 'function-type-expression': return {
 			kind: 'function-type',
 			params: typeExpression.params.map(resolveType),
@@ -302,8 +349,26 @@ export const subsumationIssues = ({ to, from }: { to: Type, from: Type }): reado
 				}
 			}
 		}
-		case 'string-type':
 		case 'number-type':
+			if (typeof to.value === 'object' && from.kind === 'number-type' && from.value != null) {
+				if (typeof from.value === 'number') {
+					if (
+						(to.value.start == null || from.value >= to.value.start) &&
+						(to.value.end == null || from.value < to.value.end)
+					) {
+						return NO_ISSUES
+					}
+				} else {
+					if (
+						(to.value.start == null || (from.value.start != null && from.value.start >= to.value.start)) &&
+						(to.value.end == null || (from.value.end != null && from.value.end < to.value.end))
+					) {
+						return NO_ISSUES
+					}
+				}
+			}
+		// eslint-disable-next-line no-fallthrough
+		case 'string-type':
 		case 'boolean-type': return (
 			from.kind === to.kind && (to.value == null || to.value === from.value)
 				? NO_ISSUES
@@ -389,7 +454,7 @@ export const displayType = (type: Type | SpreadType | KeyValueType): string => {
 		case 'array-type': return Array.isArray(type.elements) ? `[${type.elements.map(displayType).join(', ')}]` : displayType(type.elements) + '[]'
 		case 'spread-type': return `...${displayType(type)}`
 		case 'string-type': return type.value != null ? `'${type.value}'` : 'string'
-		case 'number-type': return type.value != null ? String(type.value) : 'number'
+		case 'number-type': return type.value == null ? 'number' : typeof type.value === 'number' ? String(type.value) : `${type.value.start ?? ''}..${type.value.end ?? ''}`
 		case 'boolean-type': return type.value != null ? String(type.value) : 'boolean'
 		case 'nil-type': return 'nil'
 		case 'unknown-type': return 'unknown'

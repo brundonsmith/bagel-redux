@@ -3,7 +3,7 @@ import { ParseSource, Parser, alphaChar, char, exact, filter, input, many0, many
 export type ASTInfo = { src: ParseSource, parent?: AST }
 
 export type AST =
-	| Module
+	| ModuleAST
 	| Declaration
 	| TypeExpression
 	| KeyValueTypeExpression
@@ -15,7 +15,7 @@ export type AST =
 	| NameAndType
 	| PlainIdentifier
 
-export type Module = {
+export type ModuleAST = {
 	kind: 'module',
 	declarations: Declaration[]
 } & ASTInfo
@@ -26,6 +26,7 @@ export type Declaration =
 export type ConstDeclaration = { kind: 'const-declaration', declared: NameAndType, value: Expression } & ASTInfo
 
 export type TypeExpression =
+	| TypeofTypeExpression
 	| FunctionTypeExpression
 	| UnionTypeExpression
 	| ObjectTypeExpression
@@ -36,6 +37,7 @@ export type TypeExpression =
 	| NilTypeExpression
 	| UnknownTypeExpression
 
+export type TypeofTypeExpression = { kind: 'typeof-type-expression', expression: Expression } & ASTInfo
 export type FunctionTypeExpression = { kind: 'function-type-expression', params: TypeExpression[], returns: TypeExpression } & ASTInfo
 export type UnionTypeExpression = { kind: 'union-type-expression', members: TypeExpression[] } & ASTInfo
 export type ObjectTypeExpression = { kind: 'object-type-expression', entries: Array<KeyValueTypeExpression | SpreadTypeExpression> | KeyValueTypeExpression } & ASTInfo
@@ -43,10 +45,15 @@ export type KeyValueTypeExpression = { kind: 'key-value-type-expression', key: T
 export type ArrayTypeExpression = { kind: 'array-type-expression', elements: Array<TypeExpression | SpreadTypeExpression> | TypeExpression } & ASTInfo
 export type SpreadTypeExpression = { kind: 'spread-type-expression', spread: TypeExpression } & ASTInfo
 export type StringTypeExpression = { kind: 'string-type-expression', value: string | undefined } & ASTInfo
-export type NumberTypeExpression = { kind: 'number-type-expression', value: number | undefined } & ASTInfo
+export type NumberTypeExpression = { kind: 'number-type-expression', value: Range | number | undefined } & ASTInfo
 export type BooleanTypeExpression = { kind: 'boolean-type-expression', value: boolean | undefined } & ASTInfo
 export type NilTypeExpression = { kind: 'nil-type-expression' } & ASTInfo
 export type UnknownTypeExpression = { kind: 'unknown-type-expression' } & ASTInfo
+
+export type Range =
+	| { start: number, end: number }
+	| { start: number, end: number | undefined }
+	| { start: number | undefined, end: number }
 
 export type Expression =
 	| FunctionExpression
@@ -96,7 +103,7 @@ const boolean = oneOf(
 )
 const nil = exact('nil')
 
-export const parseModule: Parser<Module, Err> = input => map(
+export const parseModule: Parser<ModuleAST, Err> = input => map(
 	tuple(whitespace, manySep0(declaration, whitespace), whitespace),
 	([_0, declarations, _1], src) => {
 		const module = {
@@ -156,6 +163,19 @@ export const nameAndType: Parser<NameAndType, Err> = input => map(
 	} as const)
 )(input)
 
+export const typeofTypeExpression: Parser<TypeofTypeExpression, Err> = input => map(
+	tuple(
+		exact('typeof'),
+		whitespace,
+		expression()
+	),
+	([_0, _1, expression], src) => ({
+		kind: 'typeof-type-expression',
+		expression,
+		src
+	} as const)
+)(input)
+
 export const functionTypeExpression: Parser<FunctionTypeExpression, Err> = input => map(
 	tuple(
 		exact('('),
@@ -195,11 +215,27 @@ export const stringTypeExpression: Parser<StringTypeExpression, Err> = map(
 	} as const)
 )
 
+const range: Parser<Range, Err> = map(
+	filter(
+		tuple(
+			optional(map(number, Number)),
+			exact('..'),
+			optional(map(number, Number))
+		),
+		([start, _0, end]) => start != null || end != null
+	),
+	([start, _0, end]) => ({
+		start,
+		end,
+	} as Range)
+)
+
 export const numberTypeExpression: Parser<NumberTypeExpression, Err> = map(
 	oneOf(
+		range,
+		map(number, n => Number(n)),
 		map(exact('number'), () => undefined),
-		map(number, n => Number(n))
-	),
+	) as Parser<NumberTypeExpression['value']>,
 	(value, src) => ({
 		kind: 'number-type-expression',
 		value,
@@ -236,6 +272,7 @@ export const unknownTypeExpression: Parser<UnknownTypeExpression, Err> = map(
 )
 
 export const typeExpression = precedence(
+	typeofTypeExpression,
 	functionTypeExpression,
 	unionTypeExpression,
 	stringTypeExpression,
