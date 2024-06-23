@@ -107,27 +107,21 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 				const subjectType = inferType(ast.subject)
 
 				if (subjectType.kind !== 'function-type') {
+					// TODO: Move this into subsumation logic
 					error({
 						message: 'Can\'t call this because it isn\'t a function',
 						src: ast.subject.src
 					})
 				} else {
-					if (ast.args.length !== subjectType.params.length) {
+					const parametersType = { kind: 'parameters-type' as const, subject: subjectType }
+					const argumentsType = { kind: 'array-type' as const, elements: ast.args.map(inferType) }
+					const argumentIssues = subsumationIssues({ to: parametersType, from: argumentsType })
+					if (argumentIssues.length > 0) {
 						error({
-							message: `Expected ${subjectType.params.length} arguments, but received ${ast.args.length}`,
-							src: ast.src
+							message: `Can't call ${displayType(subjectType)} with provided arguments`,
+							src: ast.src,
+							details: argumentIssues.map(issue => ({ message: issue, src: ast.src }))
 						})
-					}
-
-					for (const [expectedType, argExpression] of zip(subjectType.params, ast.args, 'truncate')) {
-						const providedType = inferType(argExpression)
-
-						if (!subsumes({ to: expectedType as Type, from: providedType })) { // TODO
-							error({
-								message: `${displayType(providedType)} cannot be passed to parameter expecting type ${displayType(expectedType as Type)}`, // TODO
-								src: argExpression.src
-							})
-						}
 					}
 				}
 
@@ -137,7 +131,6 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 			case 'binary-operation-expression': {
 				const leftType = inferType(ast.left)
 				const rightType = inferType(ast.right)
-
 				if (!opSignatures[ast.op].some(({ requiredLeft, requiredRight }) =>
 					subsumes({ to: requiredLeft, from: leftType }) && subsumes({ to: requiredRight, from: rightType }))
 				) {

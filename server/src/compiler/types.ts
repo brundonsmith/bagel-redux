@@ -2,27 +2,27 @@ import { AST, BinaryOperationExpression, ConstDeclaration, Declaration, Expressi
 import { todo, zip } from './utils'
 
 export type Type =
-	| { kind: 'function-type', params: Array<Type | SpreadType>, returns: Type }
-	| { kind: 'union-type', members: Type[] }
-	| { kind: 'object-type', entries: Array<KeyValueType | SpreadType> | KeyValueType }
-	| { kind: 'array-type', elements: Array<Type | SpreadType> | Type }
-	| { kind: 'string-type', value: string | undefined }
-	| { kind: 'number-type', value: Range | number | undefined }
-	| { kind: 'boolean-type', value: boolean | undefined }
-	| { kind: 'nil-type' }
-	| { kind: 'unknown-type' }
-	| { kind: 'poisoned-type' } // poisoned is the same as unknown, except it suppresses any further errors it would otherwise cause
+	| Readonly<{ kind: 'function-type', params: Array<Type | SpreadType>, returns: Type }>
+	| Readonly<{ kind: 'union-type', members: Type[] }>
+	| Readonly<{ kind: 'object-type', entries: Array<KeyValueType | SpreadType> | KeyValueType }>
+	| Readonly<{ kind: 'array-type', elements: Array<Type | SpreadType> | Type }>
+	| Readonly<{ kind: 'string-type', value: string | undefined }>
+	| Readonly<{ kind: 'number-type', value: Range | number | undefined }>
+	| Readonly<{ kind: 'boolean-type', value: boolean | undefined }>
+	| Readonly<{ kind: 'nil-type' }>
+	| Readonly<{ kind: 'unknown-type' }>
+	| Readonly<{ kind: 'poisoned-type' }> // poisoned is the same as unknown, except it suppresses any further errors it would otherwise cause
 	| PropertyType
 	| KeysType
 	| ValuesType
 	| ParametersType
 	| ReturnTypez
 
-type PropertyType = { kind: 'property-type', subject: Type, property: Type }
-type KeysType = { kind: 'keys-type', subject: Type }
-type ValuesType = { kind: 'values-type', subject: Type }
-type ParametersType = { kind: 'parameters-type', subject: Type }
-type ReturnTypez = { kind: 'return-type', subject: Type }
+type PropertyType = Readonly<{ kind: 'property-type', subject: Type, property: Type }>
+type KeysType = Readonly<{ kind: 'keys-type', subject: Type }>
+type ValuesType = Readonly<{ kind: 'values-type', subject: Type }>
+type ParametersType = Readonly<{ kind: 'parameters-type', subject: Type }>
+type ReturnTypez = Readonly<{ kind: 'return-type', subject: Type }>
 
 // convenience
 export const union = (...members: Type[]): Type => ({ kind: 'union-type', members } as const)

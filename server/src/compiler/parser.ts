@@ -25,7 +25,7 @@ export type ModuleAST = {
 export type Declaration =
 	| ConstDeclaration
 
-export type ConstDeclaration = { kind: 'const-declaration', declared: NameAndType, value: Expression } & ASTInfo
+export type ConstDeclaration = Readonly<{ kind: 'const-declaration', declared: NameAndType, value: Expression } & ASTInfo>
 
 export type TypeExpression =
 	| TypeofTypeExpression
@@ -39,17 +39,17 @@ export type TypeExpression =
 	| NilTypeExpression
 	| UnknownTypeExpression
 
-export type TypeofTypeExpression = { kind: 'typeof-type-expression', expression: Expression } & ASTInfo
-export type FunctionTypeExpression = { kind: 'function-type-expression', params: TypeExpression[], returns: TypeExpression } & ASTInfo
-export type UnionTypeExpression = { kind: 'union-type-expression', members: TypeExpression[] } & ASTInfo
-export type ObjectTypeExpression = { kind: 'object-type-expression', entries: Array<KeyValueTypeExpression | Spread<TypeExpression>> | KeyValueTypeExpression } & ASTInfo
-export type KeyValueTypeExpression = { kind: 'key-value-type-expression', key: TypeExpression, value: TypeExpression } & ASTInfo
-export type ArrayTypeExpression = { kind: 'array-type-expression', elements: Array<TypeExpression | Spread<TypeExpression>> | TypeExpression } & ASTInfo
-export type StringTypeExpression = { kind: 'string-type-expression', value: string | undefined } & ASTInfo
-export type NumberTypeExpression = { kind: 'number-type-expression', value: Range | number | undefined } & ASTInfo
-export type BooleanTypeExpression = { kind: 'boolean-type-expression', value: boolean | undefined } & ASTInfo
-export type NilTypeExpression = { kind: 'nil-type-expression' } & ASTInfo
-export type UnknownTypeExpression = { kind: 'unknown-type-expression' } & ASTInfo
+export type TypeofTypeExpression = Readonly<{ kind: 'typeof-type-expression', expression: Expression } & ASTInfo>
+export type FunctionTypeExpression = Readonly<{ kind: 'function-type-expression', params: TypeExpression[], returns: TypeExpression } & ASTInfo>
+export type UnionTypeExpression = Readonly<{ kind: 'union-type-expression', members: TypeExpression[] } & ASTInfo>
+export type ObjectTypeExpression = Readonly<{ kind: 'object-type-expression', entries: Array<KeyValueTypeExpression | Spread<TypeExpression>> | KeyValueTypeExpression } & ASTInfo>
+export type KeyValueTypeExpression = Readonly<{ kind: 'key-value-type-expression', key: TypeExpression, value: TypeExpression } & ASTInfo>
+export type ArrayTypeExpression = Readonly<{ kind: 'array-type-expression', elements: Array<TypeExpression | Spread<TypeExpression>> | TypeExpression } & ASTInfo>
+export type StringTypeExpression = Readonly<{ kind: 'string-type-expression', value: string | undefined } & ASTInfo>
+export type NumberTypeExpression = Readonly<{ kind: 'number-type-expression', value: Range | number | undefined } & ASTInfo>
+export type BooleanTypeExpression = Readonly<{ kind: 'boolean-type-expression', value: boolean | undefined } & ASTInfo>
+export type NilTypeExpression = Readonly<{ kind: 'nil-type-expression' } & ASTInfo>
+export type UnknownTypeExpression = Readonly<{ kind: 'unknown-type-expression' } & ASTInfo>
 
 export type Range =
 	| { start: number, end: number }
@@ -71,26 +71,26 @@ export type Expression =
 	| NilLiteral
 	| LocalIdentifier
 
-export type PropertyAccessExpression = { kind: 'property-access-expression', subject: Expression, property: Expression } & ASTInfo
-export type AsExpression = { kind: 'as-expression', expression: Expression, type: TypeExpression } & ASTInfo
-export type FunctionExpression = { kind: 'function-expression', args: NameAndType[], returnType: TypeExpression | undefined, body: Expression } & ASTInfo
-export type NameAndType = { kind: 'name-and-type', name: PlainIdentifier, type: TypeExpression | undefined } & ASTInfo
-export type Invocation = { kind: 'invocation', subject: Expression, args: Expression[] } & ASTInfo
-export type BinaryOperationExpression = { kind: 'binary-operation-expression', left: Expression, op: '+' | '-' | '*' | '/', right: Expression } & ASTInfo
-export type IfElseExpression = { kind: 'if-else-expression', cases: IfElseExpressionCase[], defaultCase: Expression | undefined } & ASTInfo
-export type IfElseExpressionCase = { kind: 'if-else-expression-case', condition: Expression, outcome: Expression } & ASTInfo
-export type ObjectLiteral = { kind: 'object-literal', entries: Array<KeyValueExpression | Spread<Expression>> } & ASTInfo
-export type KeyValueExpression = { kind: 'key-value-expression', key: StringLiteral, value: Expression } & ASTInfo
-export type ArrayLiteral = { kind: 'array-literal', elements: Array<Expression | Spread<Expression>> } & ASTInfo
-export type StringLiteral = { kind: 'string-literal', value: string } & ASTInfo
-export type NumberLiteral = { kind: 'number-literal', value: number } & ASTInfo
-export type BooleanLiteral = { kind: 'boolean-literal', value: boolean } & ASTInfo
-export type NilLiteral = { kind: 'nil-literal' } & ASTInfo
-export type LocalIdentifier = { kind: 'local-identifier', identifier: string } & ASTInfo
+export type PropertyAccessExpression = Readonly<{ kind: 'property-access-expression', subject: Expression, property: Expression } & ASTInfo>
+export type AsExpression = Readonly<{ kind: 'as-expression', expression: Expression, type: TypeExpression } & ASTInfo>
+export type FunctionExpression = Readonly<{ kind: 'function-expression', args: NameAndType[], returnType: TypeExpression | undefined, body: Expression } & ASTInfo>
+export type NameAndType = Readonly<{ kind: 'name-and-type', name: PlainIdentifier, type: TypeExpression | undefined } & ASTInfo>
+export type Invocation = Readonly<{ kind: 'invocation', subject: Expression, args: Expression[] } & ASTInfo>
+export type BinaryOperationExpression = Readonly<{ kind: 'binary-operation-expression', left: Expression, op: '+' | '-' | '*' | '/', right: Expression } & ASTInfo>
+export type IfElseExpression = Readonly<{ kind: 'if-else-expression', cases: IfElseExpressionCase[], defaultCase: Expression | undefined } & ASTInfo>
+export type IfElseExpressionCase = Readonly<{ kind: 'if-else-expression-case', condition: Expression, outcome: Expression } & ASTInfo>
+export type ObjectLiteral = Readonly<{ kind: 'object-literal', entries: Array<KeyValueExpression | Spread<Expression>> } & ASTInfo>
+export type KeyValueExpression = Readonly<{ kind: 'key-value-expression', key: StringLiteral, value: Expression } & ASTInfo>
+export type ArrayLiteral = Readonly<{ kind: 'array-literal', elements: Array<Expression | Spread<Expression>> } & ASTInfo>
+export type StringLiteral = Readonly<{ kind: 'string-literal', value: string } & ASTInfo>
+export type NumberLiteral = Readonly<{ kind: 'number-literal', value: number } & ASTInfo>
+export type BooleanLiteral = Readonly<{ kind: 'boolean-literal', value: boolean } & ASTInfo>
+export type NilLiteral = Readonly<{ kind: 'nil-literal' } & ASTInfo>
+export type LocalIdentifier = Readonly<{ kind: 'local-identifier', identifier: string } & ASTInfo>
 
-export type Spread<T> = { kind: 'spread', spread: T } & ASTInfo
+export type Spread<T> = Readonly<{ kind: 'spread', spread: T } & ASTInfo>
 
-export type PlainIdentifier = { kind: 'plain-identifier', identifier: string } & ASTInfo
+export type PlainIdentifier = Readonly<{ kind: 'plain-identifier', identifier: string } & ASTInfo>
 
 type Err = string
 
