@@ -1,4 +1,4 @@
-import { AST, BinaryOperationExpression, ConstDeclaration, Declaration, Expression, NameAndType, Range, TypeExpression } from './parser'
+import { AST, BinaryOperationExpression, ConstDeclaration, Declaration, Expression, NameAndType, TypeExpression } from './parser'
 import { todo, zip } from './utils'
 
 export type Type =
@@ -17,6 +17,8 @@ export type Type =
 	| ValuesType
 	| ParametersType
 	| ReturnTypez
+
+type Range = { start: number | undefined, end: number | undefined }
 
 type PropertyType = Readonly<{ kind: 'property-type', subject: Type, property: Type }>
 type KeysType = Readonly<{ kind: 'keys-type', subject: Type }>
@@ -257,35 +259,39 @@ export const resolveType = (typeExpression: TypeExpression): Type => {
 			kind: 'union-type',
 			members: typeExpression.members.map(resolveType)
 		}
-		case 'object-type-expression': return {
+		case 'object-literal': return {
 			kind: 'object-type',
 			entries: (
-				Array.isArray(typeExpression.entries)
-					? typeExpression.entries.map(entry =>
-						entry.kind === 'spread'
-							? { kind: 'spread', spread: resolveType(entry.spread) } as const
-							: { kind: 'key-value-type', key: resolveType(entry.key), value: resolveType(entry.value) } as const
-					)
-					: { kind: 'key-value-type', key: resolveType(typeExpression.entries.key), value: resolveType(typeExpression.entries.value) }
+				typeExpression.entries.map(entry =>
+					entry.kind === 'spread'
+						? { kind: 'spread', spread: resolveType(entry.spread) } as const
+						: { kind: 'key-value-type', key: resolveType(entry.key), value: resolveType(entry.value) } as const
+				)
 			)
 		}
-		case 'array-type-expression': return {
+		// : { kind: 'key-value-type', key: resolveType(typeExpression.entries.key), value: resolveType(typeExpression.entries.value) }
+		case 'array-literal': return {
 			kind: 'array-type',
 			elements: (
-				Array.isArray(typeExpression.elements)
-					? typeExpression.elements.map(element =>
-						element.kind === 'spread'
-							? { kind: 'spread', spread: resolveType(element.spread) } as const
-							: resolveType(element)
-					)
-					: resolveType(typeExpression.elements)
+				typeExpression.elements.map(element =>
+					element.kind === 'spread'
+						? { kind: 'spread', spread: resolveType(element.spread) } as const
+						: resolveType(element)
+				)
 			)
 		}
-		case 'string-type-expression': return { kind: 'string-type', value: typeExpression.value }
-		case 'number-type-expression': return { kind: 'number-type', value: typeExpression.value }
-		case 'boolean-type-expression': return { kind: 'boolean-type', value: typeExpression.value }
-		case 'nil-type-expression': return { kind: 'nil-type' }
-		case 'unknown-type-expression': return { kind: 'unknown-type' }
+		// : resolveType(typeExpression.elements)
+		case 'string-literal':
+		case 'number-literal':
+		case 'boolean-literal':
+			return literal(typeExpression.value)
+		case 'range':
+			return { kind: 'number-type', value: typeExpression }
+		case 'string-type-expression': return string
+		case 'number-type-expression': return number
+		case 'boolean-type-expression': return boolean
+		case 'nil-literal': return nil
+		case 'unknown-type-expression': return unknown
 	}
 }
 

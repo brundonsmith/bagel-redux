@@ -147,21 +147,26 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 				check(ctx, ast.cases)
 				check(ctx, ast.defaultCase)
 			} break
-			case 'object-type-expression':
 			case 'object-literal': {
 				check(ctx, ast.entries)
 			} break
-			case 'key-value-type-expression':
-			case 'key-value-expression': {
+			case 'key-value': {
 				check(ctx, ast.key)
 				check(ctx, ast.value)
 			} break
-			case 'array-type-expression':
 			case 'array-literal': {
 				check(ctx, ast.elements)
 			} break
 			case 'spread': {
 				check(ctx, ast.spread)
+			} break
+			case 'range': {
+				if (ast.start != null && ast.end != null && ast.start > ast.end) {
+					error({
+						message: 'The end of a range must be greater than or equal to the start',
+						src: ast.src
+					})
+				}
 			} break
 			case 'if-else-expression-case': {
 				check(ctx, ast.condition)
@@ -178,7 +183,6 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 			case 'string-type-expression':
 			case 'number-type-expression':
 			case 'boolean-type-expression':
-			case 'nil-type-expression':
 			case 'unknown-type-expression':
 			case 'string-literal':
 			case 'number-literal':

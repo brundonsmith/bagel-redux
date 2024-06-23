@@ -1,5 +1,5 @@
 import test from 'ava'
-import { AST, arrayLiteral, booleanLiteral, localIdentifier, nilLiteral, numberLiteral, objectLiteral, stringLiteral } from './parser'
+import { AST, arrayLiteral, booleanLiteral, expression, localIdentifier, nilLiteral, numberLiteral, objectLiteral, stringLiteral } from './parser'
 import { Parser } from './parser-combinators'
 
 function testCompleteParse<T extends AST>(name: string, fn: Parser<T, unknown>, code: string, parsed: T) {
@@ -30,7 +30,7 @@ testCompleteParse('boolean literal false', booleanLiteral, 'false', { kind: 'boo
 testCompleteParse('boolean literal true', booleanLiteral, 'true', { kind: 'boolean-literal', value: true, src: src('true') })
 testCompleteParse('number literal', numberLiteral, '12345', { kind: 'number-literal', value: 12345, src: src('12345') })
 testCompleteParse('string literal', stringLiteral, '\'hello world\'', { kind: 'string-literal', value: 'hello world', src: src('\'hello world\'') })
-testCompleteParse('array literal', arrayLiteral, '[true, 12, nil]', {
+testCompleteParse('array literal', arrayLiteral(expression()), '[true, 12, nil]', {
   kind: 'array-literal',
   elements: [
     { kind: 'boolean-literal', value: true, src: { code: '[true, 12, nil]', start: 1, end: 5 } },
@@ -39,23 +39,23 @@ testCompleteParse('array literal', arrayLiteral, '[true, 12, nil]', {
   ],
   src: src('[true, 12, nil]')
 })
-testCompleteParse('object literal', objectLiteral, '{ a: true, b: 12, c: nil }', {
+testCompleteParse('object literal', objectLiteral(expression()), '{ a: true, b: 12, c: nil }', {
   kind: 'object-literal',
   entries: [
     {
-      kind: 'key-value-expression',
+      kind: 'key-value',
       key: { kind: 'string-literal', value: 'a', src: { code: '{ a: true, b: 12, c: nil }', start: 2, end: 3 } },
       value: { kind: 'boolean-literal', value: true, src: { code: '{ a: true, b: 12, c: nil }', start: 5, end: 9 } },
       src: { code: '{ a: true, b: 12, c: nil }', start: 2, end: 9 }
     },
     {
-      kind: 'key-value-expression',
+      kind: 'key-value',
       key: { kind: 'string-literal', value: 'b', src: { code: '{ a: true, b: 12, c: nil }', start: 11, end: 12 } },
       value: { kind: 'number-literal', value: 12, src: { code: '{ a: true, b: 12, c: nil }', start: 14, end: 16 } },
       src: { code: '{ a: true, b: 12, c: nil }', start: 11, end: 16 }
     },
     {
-      kind: 'key-value-expression',
+      kind: 'key-value',
       key: { kind: 'string-literal', value: 'c', src: { code: '{ a: true, b: 12, c: nil }', start: 18, end: 19 } },
       value: { kind: 'nil-literal', src: { code: '{ a: true, b: 12, c: nil }', start: 21, end: 24 } },
       src: { code: '{ a: true, b: 12, c: nil }', start: 18, end: 24 }

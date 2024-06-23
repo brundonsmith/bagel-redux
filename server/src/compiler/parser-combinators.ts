@@ -336,12 +336,12 @@ export const take1 = <TError>(chParser: Parser<string, TError>): Parser<string, 
  */
 export const precedence = <TParsers extends Parser<unknown, unknown>[]>(
 	...levels: TParsers
-) => (
-	startingAfter?: TParsers[number]
-): TParsers[number] =>
+): Precedence<TParsers[number]> => startingAfter =>
 		startingAfter == null
 			? oneOf(...levels)
 			: oneOf(...levels.slice(levels.indexOf(startingAfter) + 1))
+
+export type Precedence<T> = (startingAfter?: T) => T
 
 /**
  * Any amount of whitespace (or none)

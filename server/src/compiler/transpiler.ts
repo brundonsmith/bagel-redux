@@ -8,25 +8,13 @@ export const compile = (ast: AST): string => {
 		case 'typeof-type-expression': return `typeof ${compile(ast.expression)}`
 		case 'function-type-expression': return `(${ast.params.map((p, i) => `param${i}: ${compile(p)}`)}) => ${compile(ast.returns)}`
 		case 'union-type-expression': return ast.members.map(compile).join(' | ')
-		case 'object-type-expression': return (
-			Array.isArray(ast.entries)
-				? `{ ${ast.entries.map(compile).join(', ')} }`
-				: `Record<${compile(ast.entries.key)}, ${compile(ast.entries.value)}>`
-		)
-		case 'array-type-expression': return (
-			Array.isArray(ast.elements)
-				? `[${ast.elements.map(compile).join(', ')}]`
-				: compile(ast.elements) + '[]'
-		)
-		case 'key-value-type-expression':
-		case 'key-value-expression':
+		case 'key-value':
 			return `${compile(ast.key)}: ${compile(ast.value)}`
 		case 'spread':
 			return `...${compile(ast.spread)}`
-		case 'string-type-expression': return ast.value ? `'${ast.value}'` : 'string'
-		case 'number-type-expression': return String(ast.value ?? 'number')
-		case 'boolean-type-expression': return String(ast.value ?? 'boolean')
-		case 'nil-type-expression': return 'null | undefined'
+		case 'string-type-expression': return 'string'
+		case 'number-type-expression': return 'number'
+		case 'boolean-type-expression': return 'boolean'
 		case 'unknown-type-expression': return 'unknown'
 		case 'property-access-expression': return `${compile(ast.subject)}[${compile(ast.property)}]`
 		case 'as-expression': return `${compile(ast.expression)} as ${compile(ast.type)}`
@@ -41,7 +29,8 @@ export const compile = (ast: AST): string => {
 		case 'string-literal': return `'${ast.value}'`
 		case 'number-literal': return String(ast.value)
 		case 'boolean-literal': return String(ast.value)
-		case 'nil-literal': return NIL
+		case 'nil-literal': return NIL // TODO: in a type context, make it null | undefined?
+		case 'range': return todo()
 		case 'local-identifier':
 		case 'plain-identifier':
 			return ast.identifier

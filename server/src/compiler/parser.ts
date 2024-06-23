@@ -1,4 +1,4 @@
-import { ParseSource, Parser, alphaChar, char, exact, filter, input, many0, many1, manySep0, manySep1, manySep2, map, numericChar, oneOf, optional, precedence, required, take0, take1, tuple, whitespace } from './parser-combinators'
+import { ParseSource, Parser, Precedence, alphaChar, char, exact, filter, input, many0, many1, manySep0, manySep1, manySep2, map, numericChar, oneOf, optional, precedence, required, take0, take1, tuple, whitespace } from './parser-combinators'
 import { KeyValueType, SpreadType } from './types'
 import { todo } from './utils'
 
@@ -8,10 +8,10 @@ export type AST =
 	| ModuleAST
 	| Declaration
 	| TypeExpression
-	| KeyValueTypeExpression
+	| KeyValue<TypeExpression>
 	| Spread<TypeExpression>
 	| Expression
-	| KeyValueExpression
+	| KeyValue<Expression>
 	| Spread<Expression>
 	| IfElseExpressionCase
 	| NameAndType
@@ -36,25 +36,22 @@ export type TypeExpression =
 	| StringTypeExpression
 	| NumberTypeExpression
 	| BooleanTypeExpression
-	| NilTypeExpression
+	| Range
+	| StringLiteral
+	| NumberLiteral
+	| BooleanLiteral
+	| NilLiteral
 	| UnknownTypeExpression
 
+export type ObjectTypeExpression = Readonly<{ kind: 'object-literal', entries: Array<Readonly<{ kind: 'key-value', key: TypeExpression, value: TypeExpression } & ASTInfo> | Readonly<{ kind: 'spread', spread: TypeExpression } & ASTInfo>> } & ASTInfo>
+export type ArrayTypeExpression = Readonly<{ kind: 'array-literal', elements: Array<TypeExpression | Readonly<{ kind: 'spread', spread: TypeExpression } & ASTInfo>> } & ASTInfo>
 export type TypeofTypeExpression = Readonly<{ kind: 'typeof-type-expression', expression: Expression } & ASTInfo>
 export type FunctionTypeExpression = Readonly<{ kind: 'function-type-expression', params: TypeExpression[], returns: TypeExpression } & ASTInfo>
 export type UnionTypeExpression = Readonly<{ kind: 'union-type-expression', members: TypeExpression[] } & ASTInfo>
-export type ObjectTypeExpression = Readonly<{ kind: 'object-type-expression', entries: Array<KeyValueTypeExpression | Spread<TypeExpression>> | KeyValueTypeExpression } & ASTInfo>
-export type KeyValueTypeExpression = Readonly<{ kind: 'key-value-type-expression', key: TypeExpression, value: TypeExpression } & ASTInfo>
-export type ArrayTypeExpression = Readonly<{ kind: 'array-type-expression', elements: Array<TypeExpression | Spread<TypeExpression>> | TypeExpression } & ASTInfo>
-export type StringTypeExpression = Readonly<{ kind: 'string-type-expression', value: string | undefined } & ASTInfo>
-export type NumberTypeExpression = Readonly<{ kind: 'number-type-expression', value: Range | number | undefined } & ASTInfo>
-export type BooleanTypeExpression = Readonly<{ kind: 'boolean-type-expression', value: boolean | undefined } & ASTInfo>
-export type NilTypeExpression = Readonly<{ kind: 'nil-type-expression' } & ASTInfo>
+export type StringTypeExpression = Readonly<{ kind: 'string-type-expression' } & ASTInfo>
+export type NumberTypeExpression = Readonly<{ kind: 'number-type-expression' } & ASTInfo>
+export type BooleanTypeExpression = Readonly<{ kind: 'boolean-type-expression' } & ASTInfo>
 export type UnknownTypeExpression = Readonly<{ kind: 'unknown-type-expression' } & ASTInfo>
-
-export type Range =
-	| { start: number, end: number }
-	| { start: number, end: number | undefined }
-	| { start: number | undefined, end: number }
 
 export type Expression =
 	| PropertyAccessExpression
@@ -63,14 +60,16 @@ export type Expression =
 	| Invocation
 	| BinaryOperationExpression
 	| IfElseExpression
-	| ObjectLiteral
-	| ArrayLiteral
+	| ObjectExpression
+	| ArrayExpression
 	| StringLiteral
 	| NumberLiteral
 	| BooleanLiteral
 	| NilLiteral
 	| LocalIdentifier
 
+export type ObjectExpression = Readonly<{ kind: 'object-literal', entries: Array<Readonly<{ kind: 'key-value', key: Expression, value: Expression } & ASTInfo> | Readonly<{ kind: 'spread', spread: Expression } & ASTInfo>> } & ASTInfo>
+export type ArrayExpression = Readonly<{ kind: 'array-literal', elements: Array<Expression | Readonly<{ kind: 'spread', spread: Expression } & ASTInfo>> } & ASTInfo>
 export type PropertyAccessExpression = Readonly<{ kind: 'property-access-expression', subject: Expression, property: Expression } & ASTInfo>
 export type AsExpression = Readonly<{ kind: 'as-expression', expression: Expression, type: TypeExpression } & ASTInfo>
 export type FunctionExpression = Readonly<{ kind: 'function-expression', args: NameAndType[], returnType: TypeExpression | undefined, body: Expression } & ASTInfo>
@@ -79,15 +78,16 @@ export type Invocation = Readonly<{ kind: 'invocation', subject: Expression, arg
 export type BinaryOperationExpression = Readonly<{ kind: 'binary-operation-expression', left: Expression, op: '+' | '-' | '*' | '/', right: Expression } & ASTInfo>
 export type IfElseExpression = Readonly<{ kind: 'if-else-expression', cases: IfElseExpressionCase[], defaultCase: Expression | undefined } & ASTInfo>
 export type IfElseExpressionCase = Readonly<{ kind: 'if-else-expression-case', condition: Expression, outcome: Expression } & ASTInfo>
-export type ObjectLiteral = Readonly<{ kind: 'object-literal', entries: Array<KeyValueExpression | Spread<Expression>> } & ASTInfo>
-export type KeyValueExpression = Readonly<{ kind: 'key-value-expression', key: StringLiteral, value: Expression } & ASTInfo>
-export type ArrayLiteral = Readonly<{ kind: 'array-literal', elements: Array<Expression | Spread<Expression>> } & ASTInfo>
 export type StringLiteral = Readonly<{ kind: 'string-literal', value: string } & ASTInfo>
 export type NumberLiteral = Readonly<{ kind: 'number-literal', value: number } & ASTInfo>
 export type BooleanLiteral = Readonly<{ kind: 'boolean-literal', value: boolean } & ASTInfo>
 export type NilLiteral = Readonly<{ kind: 'nil-literal' } & ASTInfo>
 export type LocalIdentifier = Readonly<{ kind: 'local-identifier', identifier: string } & ASTInfo>
+export type Range = Readonly<{ kind: 'range', start: number | undefined, end: number | undefined } & ASTInfo>
 
+export type ObjectLiteral<T> = Readonly<{ kind: 'object-literal', entries: Array<KeyValue<T> | Spread<T>> } & ASTInfo>
+export type ArrayLiteral<T> = Readonly<{ kind: 'array-literal', elements: Array<T | Spread<T>> } & ASTInfo>
+export type KeyValue<T> = Readonly<{ kind: 'key-value', key: T, value: T } & ASTInfo>
 export type Spread<T> = Readonly<{ kind: 'spread', spread: T } & ASTInfo>
 
 export type PlainIdentifier = Readonly<{ kind: 'plain-identifier', identifier: string } & ASTInfo>
@@ -136,7 +136,7 @@ export const constDeclaration: Parser<ConstDeclaration, Err> = input => map(
 		whitespace,
 		required(exact('='), () => 'Expected ='),
 		whitespace,
-		required(expression() as Parser<Expression, Err>, () => 'Expected value'),
+		required(expression(), () => 'Expected value'),
 	),
 	([_0, _1, declared, _3, _4, _5, value], src) => ({
 		kind: 'const-declaration',
@@ -185,7 +185,7 @@ export const typeofTypeExpression: Parser<TypeofTypeExpression, Err> = input => 
 export const functionTypeExpression: Parser<FunctionTypeExpression, Err> = input => map(
 	tuple(
 		exact('('),
-		manySep0(typeExpression() as Parser<TypeExpression, Err>, tuple(whitespace, exact(','), whitespace)),
+		manySep0(typeExpression(), tuple(whitespace, exact(','), whitespace)),
 		exact(')'),
 		whitespace,
 		exact('=>'),
@@ -201,7 +201,7 @@ export const functionTypeExpression: Parser<FunctionTypeExpression, Err> = input
 )(input)
 
 export const unionTypeExpression: Parser<UnionTypeExpression, Err> = input => map(
-	manySep2(typeExpression(unionTypeExpression) as Parser<TypeExpression, Err>, tuple(whitespace, exact('|'), whitespace)),
+	manySep2(typeExpression(unionTypeExpression), tuple(whitespace, exact('|'), whitespace)),
 	(members, src) => ({
 		kind: 'union-type-expression',
 		members,
@@ -209,79 +209,32 @@ export const unionTypeExpression: Parser<UnionTypeExpression, Err> = input => ma
 	} as const)
 )(input)
 
-// const object = <TValue>(value: Parser<T, Err>) => map(
-// 	tuple(
-// 		exact('{'),
-// 		whitespace,
-// 		manySep0<KeyValueTypeExpression | SpreadTypeExpression, string, Err>(
-// 			oneOf(
-// 				spread(value),
-// 				map(
-// 					tuple(
-// 						oneOf(
-// 							plainIdentifier,
-// 							map(string, (value, src) => ({ kind: 'string-type-expression' as const, value, src }))
-// 						),
-// 						whitespace,
-// 						exact(':'),
-// 						whitespace,
-// 						value
-// 					),
-// 					([key, _0, _1, _2, value], src) => ({
-// 						kind: 'key-value-type-expression',
-// 						key: (
-// 							key.kind === 'plain-identifier'
-// 								? { kind: 'string-type-expression', value: key.identifier, src: key.src } as const
-// 								: key
-// 						),
-// 						value,
-// 						src
-// 					} as const)
-// 				)
-// 			),
-// 			tuple(whitespace, exact(','), whitespace)
-// 		),
-// 		whitespace,
-// 		required(exact('}'), () => 'Expected \'}\'')
-// 		// TODO: {[key]: value}
-// 	),
-// 	([_0, _1, entries, _2, _3], src) => ({
-// 		kind: 'object-type-expression',
-// 		entries,
-// 		src
-// 	})
-// )
+const keyValue = <T extends TypeExpression | Expression>(inner: Parser<T, Err>): Parser<KeyValue<T>, Err> => map(
+	tuple(
+		oneOf(plainIdentifier, inner),
+		whitespace,
+		exact(':'),
+		whitespace,
+		inner
+	),
+	([key, _0, _1, _2, value], src) => ({
+		kind: 'key-value',
+		key: (
+			key.kind === 'plain-identifier'
+				? { kind: 'string-literal' as const, value: key.identifier, src: key.src } as T
+				: key
+		),
+		value,
+		src
+	} as const)
+)
 
-const objectTypeExpression: Parser<ObjectTypeExpression, Err> = input => map(
+export const objectLiteral = <T extends TypeExpression | Expression>(inner: Parser<T, Err>): Parser<ObjectLiteral<T>, Err> => map(
 	tuple(
 		exact('{'),
 		whitespace,
-		manySep0<KeyValueTypeExpression | Spread<TypeExpression>, string, Err>(
-			oneOf(
-				spread(typeExpression() as Parser<TypeExpression, Err>),
-				map(
-					tuple(
-						oneOf(
-							plainIdentifier,
-							map(string, (value, src) => ({ kind: 'string-type-expression' as const, value, src }))
-						),
-						whitespace,
-						exact(':'),
-						whitespace,
-						typeExpression()
-					),
-					([key, _0, _1, _2, value], src) => ({
-						kind: 'key-value-type-expression',
-						key: (
-							key.kind === 'plain-identifier'
-								? { kind: 'string-type-expression', value: key.identifier, src: key.src } as const
-								: key
-						),
-						value,
-						src
-					} as const)
-				)
-			),
+		manySep0<KeyValue<T> | Spread<T>, string, Err>(
+			oneOf(spread(inner), keyValue(inner)),
 			tuple(whitespace, exact(','), whitespace)
 		),
 		whitespace,
@@ -289,27 +242,26 @@ const objectTypeExpression: Parser<ObjectTypeExpression, Err> = input => map(
 		// TODO: {[key]: value}
 	),
 	([_0, _1, entries, _2, _3], src) => ({
-		kind: 'object-type-expression',
+		kind: 'object-literal',
 		entries,
 		src
-	} as const)
-)(input)
+	})
+)
 
-const arrayTypeExpression: Parser<ArrayTypeExpression, Err> = input => map(
+export const arrayLiteral = <T extends TypeExpression | Expression>(inner: Parser<T, Err>): Parser<ArrayLiteral<T>, Err> => map(
 	tuple(
 		exact('['),
 		whitespace,
-		manySep0<TypeExpression | Spread<TypeExpression>, string, Err>(oneOf(spread(typeExpression() as Parser<TypeExpression, Err>), typeExpression()), tuple(whitespace, exact(','), whitespace)),
+		manySep0<T | Spread<T>, string, Err>(oneOf(spread(inner), inner), tuple(whitespace, exact(','), whitespace)),
 		whitespace,
 		required(exact(']'), () => 'Expected \'}\'')
-		// TODO: element[length?]
 	),
 	([_0, _1, elements, _2, _3], src) => ({
-		kind: 'array-type-expression',
+		kind: 'array-literal',
 		elements,
 		src
 	} as const)
-)(input)
+)
 
 export const stringTypeExpression: Parser<StringTypeExpression, Err> = map(
 	oneOf(
@@ -332,64 +284,88 @@ const range: Parser<Range, Err> = map(
 		),
 		([start, _0, end]) => start != null || end != null
 	),
-	([start, _0, end]) => ({
+	([start, _0, end], src) => ({
+		kind: 'range',
 		start,
 		end,
-	} as Range)
+		src
+	})
 )
 
 export const numberTypeExpression: Parser<NumberTypeExpression, Err> = map(
-	oneOf(
-		range,
-		map(number, n => Number(n)),
-		map(exact('number'), () => undefined),
-	) as Parser<NumberTypeExpression['value']>,
-	(value, src) => ({
+	exact('number'),
+	(_0, src) => ({
 		kind: 'number-type-expression',
-		value,
 		src
 	} as const)
 )
 
 export const booleanTypeExpression: Parser<BooleanTypeExpression, Err> = map(
-	oneOf(
-		map(exact('boolean'), () => undefined),
-		map(boolean, b => b === 'true')
-	),
-	(value, src) => ({
+	exact('boolean'),
+	(_0, src) => ({
 		kind: 'boolean-type-expression',
-		value,
-		src
-	} as const)
-)
-
-export const nilTypeExpression: Parser<NilTypeExpression, Err> = map(
-	nil,
-	(_, src) => ({
-		kind: 'nil-type-expression',
 		src
 	} as const)
 )
 
 export const unknownTypeExpression: Parser<UnknownTypeExpression, Err> = map(
 	exact('unknown'),
-	(_, src) => ({
+	(_0, src) => ({
 		kind: 'unknown-type-expression',
 		src
 	})
 )
 
-export const typeExpression = precedence(
+export const stringLiteral: Parser<StringLiteral, Err> = map(
+	string,
+	(value, src) => ({
+		kind: 'string-literal',
+		value,
+		src
+	} as const)
+)
+
+export const numberLiteral: Parser<NumberLiteral, Err> = map(
+	number,
+	(parsed, src) => ({
+		kind: 'number-literal',
+		value: Number(parsed),
+		src
+	} as const)
+)
+
+export const booleanLiteral: Parser<BooleanLiteral, Err> = map(
+	boolean,
+	(parsed, src) => ({
+		kind: 'boolean-literal',
+		value: parsed === 'true',
+		src
+	} as const)
+)
+
+export const nilLiteral: Parser<NilLiteral, Err> = map(
+	nil,
+	(_, src) => ({
+		kind: 'nil-literal',
+		src
+	} as const)
+)
+
+export const typeExpression: Precedence<Parser<TypeExpression, Err>> = startingAfter => input => precedence(
 	typeofTypeExpression,
 	functionTypeExpression,
 	unionTypeExpression,
-	objectTypeExpression,
-	arrayTypeExpression,
+	objectLiteral(typeExpression()),
+	arrayLiteral(typeExpression()),
 	stringTypeExpression,
 	numberTypeExpression,
 	booleanTypeExpression,
-	nilTypeExpression
-)
+	range,
+	stringLiteral,
+	numberLiteral,
+	booleanLiteral,
+	nilLiteral
+)(startingAfter as any)(input)
 
 const propertyAccessExpression: Parser<PropertyAccessExpression, Err> = input => map(
 	tuple(
@@ -482,7 +458,7 @@ const invocation: Parser<Invocation, Err> = input => map(
 		expression(invocation),
 		exact('('),
 		whitespace,
-		manySep0(expression() as Parser<Expression, Err>, tuple(whitespace, exact(','), whitespace)), // TODO: spreads
+		manySep0(expression(), tuple(whitespace, exact(','), whitespace)), // TODO: spreads
 		whitespace,
 		exact(')')
 	),
@@ -563,62 +539,6 @@ const ifCase: Parser<IfElseExpressionCase, Err> = input => map(
 	} as const)
 )(input)
 
-export const objectLiteral: Parser<ObjectLiteral, Err> = input => map(
-	tuple(
-		exact('{'),
-		whitespace,
-		manySep0<KeyValueExpression | Spread<Expression>, string, Err>(
-			oneOf(
-				spread(expression() as Parser<Expression, Err>),
-				map(
-					tuple(
-						oneOf(plainIdentifier, stringLiteral),
-						whitespace,
-						exact(':'),
-						whitespace,
-						expression()
-					),
-					([key, _0, _1, _2, value], src) => ({
-						kind: 'key-value-expression',
-						key: (
-							key.kind === 'plain-identifier'
-								? { kind: 'string-literal', value: key.identifier, src: key.src } as const
-								: key
-						),
-						value,
-						src
-					} as const)
-				)
-			),
-			tuple(whitespace, exact(','), whitespace)
-		),
-		whitespace,
-		optional(exact(',')),
-		whitespace,
-		required(exact('}'), () => 'Expected \'}\'')
-	),
-	([_0, _1, entries, _2, _3], src) => ({
-		kind: 'object-literal' as const,
-		entries,
-		src
-	})
-)(input)
-
-export const arrayLiteral: Parser<ArrayLiteral, Err> = input => map(
-	tuple(
-		exact('['),
-		whitespace,
-		manySep0<Expression | Spread<Expression>, string, Err>(oneOf(spread(expression() as Parser<Expression, Err>), expression()), tuple(whitespace, exact(','), whitespace)),
-		whitespace,
-		required(exact(']'), () => 'Expected \'}\'')
-	),
-	([_0, _1, elements, _2, _3], src) => ({
-		kind: 'array-literal',
-		elements,
-		src
-	} as const)
-)(input)
-
 const spread = <T>(inner: Parser<T, Err>): Parser<Spread<T>, Err> => map(
 	tuple(
 		exact('...'),
@@ -627,41 +547,6 @@ const spread = <T>(inner: Parser<T, Err>): Parser<Spread<T>, Err> => map(
 	([_0, spread], src) => ({
 		kind: 'spread',
 		spread,
-		src
-	} as const)
-)
-
-export const stringLiteral: Parser<StringLiteral, Err> = map(
-	string,
-	(value, src) => ({
-		kind: 'string-literal',
-		value,
-		src
-	} as const)
-)
-
-export const numberLiteral: Parser<NumberLiteral, Err> = map(
-	number,
-	(parsed, src) => ({
-		kind: 'number-literal',
-		value: Number(parsed),
-		src
-	} as const)
-)
-
-export const booleanLiteral: Parser<BooleanLiteral, Err> = map(
-	boolean,
-	(parsed, src) => ({
-		kind: 'boolean-literal',
-		value: parsed === 'true',
-		src
-	} as const)
-)
-
-export const nilLiteral: Parser<NilLiteral, Err> = map(
-	nil,
-	(_, src) => ({
-		kind: 'nil-literal',
 		src
 	} as const)
 )
@@ -686,7 +571,7 @@ export const plainIdentifier: Parser<PlainIdentifier, Err> = map(
 	} as const)
 )
 
-export const expression = precedence(
+export const expression: Precedence<Parser<Expression, Err>> = startingAfter => input => precedence(
 	propertyAccessExpression,
 	asExpression,
 	invocation,
@@ -694,14 +579,14 @@ export const expression = precedence(
 	timesOrDivOperation,
 	ifElseExpression,
 	functionExpression,
-	objectLiteral,
-	arrayLiteral,
+	objectLiteral(expression()),
+	arrayLiteral(expression()),
 	stringLiteral,
 	numberLiteral,
 	booleanLiteral,
 	nilLiteral,
 	localIdentifier
-)
+)(startingAfter as any)(input)
 
 const parentChildren = (ast: AST) => {
 	for (const key in ast as any) {
