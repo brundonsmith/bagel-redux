@@ -1,6 +1,4 @@
-import { ParseSource, Parser, Precedence, alphaChar, char, exact, filter, input, many0, many1, manySep0, manySep1, manySep2, map, numericChar, oneOf, optional, precedence, required, take0, take1, tuple, whitespace } from './parser-combinators'
-import { KeyValueType, SpreadType } from './types'
-import { todo } from './utils'
+import { ParseSource, Parser, Precedence, alphaChar, char, exact, filter, many1, manySep0, manySep1, manySep2, map, numericChar, oneOf, optional, precedence, required, take0, take1, tuple, whitespace } from './parser-combinators'
 
 export type ASTInfo = { src: ParseSource, parent?: AST }
 
@@ -238,6 +236,8 @@ export const objectLiteral = <T extends TypeExpression | Expression>(inner: Pars
 			tuple(whitespace, exact(','), whitespace)
 		),
 		whitespace,
+		optional(exact(',')),
+		whitespace,
 		required(exact('}'), () => 'Expected \'}\'')
 		// TODO: {[key]: value}
 	),
@@ -253,6 +253,8 @@ export const arrayLiteral = <T extends TypeExpression | Expression>(inner: Parse
 		exact('['),
 		whitespace,
 		manySep0<T | Spread<T>, string, Err>(oneOf(spread(inner), inner), tuple(whitespace, exact(','), whitespace)),
+		whitespace,
+		optional(exact(',')),
 		whitespace,
 		required(exact(']'), () => 'Expected \'}\'')
 	),
@@ -459,6 +461,8 @@ const invocation: Parser<Invocation, Err> = input => map(
 		exact('('),
 		whitespace,
 		manySep0(expression(), tuple(whitespace, exact(','), whitespace)), // TODO: spreads
+		whitespace,
+		optional(exact(',')),
 		whitespace,
 		exact(')')
 	),

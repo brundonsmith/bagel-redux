@@ -24,6 +24,7 @@ import {
 } from 'vscode-languageserver-textdocument'
 import { parseModule } from './compiler/parser'
 import { check } from './compiler/checker'
+import { getCompletions } from './compiler/completions'
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -139,11 +140,30 @@ connection.languages.diagnostics.on(async (params) => {
 	}
 })
 
+// export interface InlineCompletionItem {
+//     /**
+//      * The text to replace the range with. Must be set.
+//      */
+//     insertText: string | StringValue;
+//     /**
+//      * A text that is used to decide if this inline completion should be shown. When `falsy` the {@link InlineCompletionItem.insertText} is used.
+//      */
+//     filterText?: string;
+//     /**
+//      * The range to replace. Must begin and end on the same line.
+//      */
+//     range?: Range;
+//     /**
+//      * An optional {@link Command} that is executed *after* inserting this completion.
+//      */
+//     command?: Command;
+// }
+
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
-documents.onDidChangeContent(change => {
-	validateTextDocument(change.document)
-})
+// documents.onDidChangeContent(change => {
+// 	validateTextDocument(change.document)
+// })
 
 async function validateTextDocument(textDocument: TextDocument): Promise<Diagnostic[]> {
 	// In this simple example we get the settings for every validate run.
@@ -217,22 +237,23 @@ connection.onDidChangeWatchedFiles(_change => {
 
 // This handler provides the initial list of the completion items.
 connection.onCompletion(
-	(_textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
-		// The pass parameter contains the position of the text document in
-		// which code complete got requested. For the example we ignore this
-		// info and always provide the same completion items.
-		return [
-			{
-				label: 'TypeScript',
-				kind: CompletionItemKind.Text,
-				data: 1
-			},
-			{
-				label: 'JavaScript',
-				kind: CompletionItemKind.Text,
-				data: 2
+	(params: TextDocumentPositionParams): CompletionItem[] => {
+
+		const document = documents.get(params.textDocument.uri)
+		if (document !== undefined) {
+			const result = parseModule({ code: document.getText(), index: 0 })
+
+			if (result?.kind === 'success') {
+				const completions = getCompletions(result.parsed, document.offsetAt(params.position))
+				return completions.map((c, i) => ({
+					label: c.text,
+					kind: CompletionItemKind.Text,
+					data: c.text
+				}))
 			}
-		]
+		}
+
+		return []
 	}
 )
 
