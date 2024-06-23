@@ -51,8 +51,50 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 			case 'union-type-expression': {
 				check(ctx, ast.members)
 			} break
+			case 'property-access-expression': {
+				const subjectType = inferType(ast.subject)
+				const propertyType = inferType(ast.property)
+				if (!subsumes({ to: { kind: 'keys-type', subject: subjectType }, from: propertyType })) {
+					error({
+						message: `Can't index type ${displayType(subjectType)} with property ${displayType(propertyType)}`,
+						src: ast.property.src
+					})
+				}
+
+				check(ctx, ast.subject)
+				check(ctx, ast.property)
+			} break
+			case 'as-expression': {
+				const expressionType = inferType(ast.expression)
+				const castType = resolveType(ast.type)
+				const issues = subsumationIssues({ to: castType, from: expressionType })
+				if (issues.length > 0) {
+					error({
+						message: `Can't cast ${displayType(expressionType)} to ${displayType(castType)}, because its value may not fit into the new type`,
+						src: ast.src,
+						details: issues.map(issue => ({ message: issue, src: ast.expression.src }))
+					})
+				}
+
+				check(ctx, ast.expression)
+				check(ctx, ast.type)
+			} break
 			case 'function-expression': {
 				// TODO: Lots of stuff
+
+				if (ast.returnType) {
+					const returnType = resolveType(ast.returnType)
+					const bodyType = inferType(ast.body)
+					const issues = subsumationIssues({ to: returnType, from: bodyType })
+					if (issues.length > 0) {
+						error({
+							message: `Expected return type of ${displayType(returnType)}, but found ${displayType(bodyType)}`,
+							src: ast.body.src,
+							details: issues.map(issue => ({ message: issue, src: ast.body.src }))
+						})
+					}
+				}
+
 				check(ctx, ast.args)
 				check(ctx, ast.returnType)
 				check(ctx, ast.body)
@@ -125,8 +167,7 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 			case 'array-literal': {
 				check(ctx, ast.elements)
 			} break
-			case 'spread-type-expression':
-			case 'spread-expression': {
+			case 'spread': {
 				check(ctx, ast.spread)
 			} break
 			case 'if-else-expression-case': {

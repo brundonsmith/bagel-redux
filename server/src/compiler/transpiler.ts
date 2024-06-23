@@ -21,14 +21,15 @@ export const compile = (ast: AST): string => {
 		case 'key-value-type-expression':
 		case 'key-value-expression':
 			return `${compile(ast.key)}: ${compile(ast.value)}`
-		case 'spread-type-expression':
-		case 'spread-expression':
+		case 'spread':
 			return `...${compile(ast.spread)}`
 		case 'string-type-expression': return ast.value ? `'${ast.value}'` : 'string'
 		case 'number-type-expression': return String(ast.value ?? 'number')
 		case 'boolean-type-expression': return String(ast.value ?? 'boolean')
 		case 'nil-type-expression': return 'null | undefined'
 		case 'unknown-type-expression': return 'unknown'
+		case 'property-access-expression': return `${compile(ast.subject)}[${compile(ast.property)}]`
+		case 'as-expression': return `${compile(ast.expression)} as ${compile(ast.type)}`
 		case 'function-expression': return todo()
 		case 'name-and-type': return compile(ast.name) + (ast.type ? `: ${compile(ast.type)}` : '')
 		case 'invocation': return `${compile(ast.subject)}(${ast.args.map(compile).join(', ')})`

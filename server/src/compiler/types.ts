@@ -12,12 +12,17 @@ export type Type =
 	| { kind: 'nil-type' }
 	| { kind: 'unknown-type' }
 	| { kind: 'poisoned-type' } // poisoned is the same as unknown, except it suppresses any further errors it would otherwise cause
+	| PropertyType
+	| KeysType
+	| ValuesType
+	| ParametersType
+	| ReturnTypez
 
-	| { kind: 'property-type', subject: Type, property: Type }
-	| { kind: 'keys-type', subject: Type }
-	| { kind: 'values-type', subject: Type }
-	| { kind: 'parameter-type', subject: Type, arg: Type }
-	| { kind: 'return-type', subject: Type }
+type PropertyType = { kind: 'property-type', subject: Type, property: Type }
+type KeysType = { kind: 'keys-type', subject: Type }
+type ValuesType = { kind: 'values-type', subject: Type }
+type ParametersType = { kind: 'parameters-type', subject: Type }
+type ReturnTypez = { kind: 'return-type', subject: Type }
 
 // convenience
 export const union = (...members: Type[]): Type => ({ kind: 'union-type', members } as const)
@@ -52,7 +57,7 @@ export const opSignatures = {
 } as const satisfies Record<BinaryOperationExpression['op'], { requiredLeft: Type, requiredRight: Type, result: Type }[]>
 
 export type KeyValueType = { kind: 'key-value-type', key: Type, value: Type }
-export type SpreadType = { kind: 'spread-type', spread: Type }
+export type SpreadType = { kind: 'spread', spread: Type }
 
 const opOnRange = (operator: '+' | '-' | '*' | '/', left: Range | number | undefined, right: Range | number | undefined): Range | number | undefined => {
 	if (left == null || right == null) {
@@ -103,6 +108,12 @@ const baseOperatorFns = {
 
 export const inferType = (expression: Expression): Type => {
 	switch (expression.kind) {
+		case 'property-access-expression': return {
+			kind: 'property-type',
+			subject: inferType(expression.subject),
+			property: inferType(expression.property)
+		}
+		case 'as-expression': return resolveType(expression.type)
 		case 'function-expression': {
 			return {
 				kind: 'function-type',
@@ -182,15 +193,15 @@ export const inferType = (expression: Expression): Type => {
 		}
 		case 'object-literal': return {
 			kind: 'object-type', entries: expression.entries.map(entry =>
-				entry.kind === 'spread-expression'
-					? { kind: 'spread-type', spread: inferType(entry.spread) }
+				entry.kind === 'spread'
+					? { kind: 'spread', spread: inferType(entry.spread) }
 					: { kind: 'key-value-type', key: inferType(entry.key), value: inferType(entry.value) }
 			)
 		}
 		case 'array-literal': return {
 			kind: 'array-type', elements: expression.elements.map(element =>
-				element.kind === 'spread-expression'
-					? { kind: 'spread-type', spread: inferType(element.spread) } as const
+				element.kind === 'spread'
+					? { kind: 'spread', spread: inferType(element.spread) } as const
 					: inferType(element)
 			)
 		}
@@ -251,8 +262,8 @@ export const resolveType = (typeExpression: TypeExpression): Type => {
 			entries: (
 				Array.isArray(typeExpression.entries)
 					? typeExpression.entries.map(entry =>
-						entry.kind === 'spread-type-expression'
-							? { kind: 'spread-type', spread: resolveType(entry.spread) } as const
+						entry.kind === 'spread'
+							? { kind: 'spread', spread: resolveType(entry.spread) } as const
 							: { kind: 'key-value-type', key: resolveType(entry.key), value: resolveType(entry.value) } as const
 					)
 					: { kind: 'key-value-type', key: resolveType(typeExpression.entries.key), value: resolveType(typeExpression.entries.value) }
@@ -263,8 +274,8 @@ export const resolveType = (typeExpression: TypeExpression): Type => {
 			elements: (
 				Array.isArray(typeExpression.elements)
 					? typeExpression.elements.map(element =>
-						element.kind === 'spread-type-expression'
-							? { kind: 'spread-type', spread: resolveType(element.spread) } as const
+						element.kind === 'spread'
+							? { kind: 'spread', spread: resolveType(element.spread) } as const
 							: resolveType(element)
 					)
 					: resolveType(typeExpression.elements)
@@ -285,16 +296,29 @@ export type SubsumationIssue = string
 export const subsumationIssues = ({ to, from }: { to: Type, from: Type }): readonly SubsumationIssue[] => {
 	const NO_ISSUES = [] as const
 
-	if (from.kind === 'poisoned-type') {
-		return NO_ISSUES
+	// indirect types that require evaluation/recursion
+	switch (to.kind) {
+		case 'property-type': return subsumationIssues({ to: getPropertyType(to), from })
+		case 'keys-type': return subsumationIssues({ to: getKeysType(to), from })
+		case 'values-type': return subsumationIssues({ to: getValuesType(to), from })
+		case 'parameters-type': return subsumationIssues({ to: getParametersType(to), from })
+		case 'return-type': return subsumationIssues({ to: getReturnType(to), from })
+		case 'union-type': return to.members.map(to => subsumationIssues({ to, from })).flat()
+		case 'unknown-type': return NO_ISSUES
+		case 'poisoned-type': return NO_ISSUES
+	}
+	switch (from.kind) {
+		case 'property-type': return subsumationIssues({ to, from: getPropertyType(from) })
+		case 'keys-type': return subsumationIssues({ to, from: getKeysType(from) })
+		case 'values-type': return subsumationIssues({ to, from: getValuesType(from) })
+		case 'parameters-type': return subsumationIssues({ to, from: getParametersType(from) })
+		case 'return-type': return subsumationIssues({ to, from: getReturnType(from) })
+		case 'union-type': return todo()
+		case 'poisoned-type': return NO_ISSUES
 	}
 
+	// assume structural types
 	switch (to.kind) {
-		case 'property-type': return todo()
-		case 'keys-type': return todo()
-		case 'values-type': return todo()
-		case 'parameter-type': return todo()
-		case 'return-type': return todo()
 		case 'function-type': {
 			if (from.kind !== 'function-type') {
 				return [basicSubsumationIssueMessage({ to, from })]
@@ -310,8 +334,7 @@ export const subsumationIssues = ({ to, from }: { to: Type, from: Type }): reado
 
 				return [basicSubsumationIssueMessage({ to, from }), ...issues]
 			}
-		} break
-		case 'union-type': return to.members.map(to => subsumationIssues({ to, from })).flat()
+		}
 		case 'object-type': return todo()
 		case 'array-type': {
 			if (from.kind !== 'array-type') {
@@ -326,9 +349,9 @@ export const subsumationIssues = ({ to, from }: { to: Type, from: Type }): reado
 					return to.elements.map((to, i) => {
 						const from = fromElements[i]!
 						return (
-							to.kind === 'spread-type'
+							to.kind === 'spread'
 								? todo()
-								: from.kind === 'spread-type'
+								: from.kind === 'spread'
 									? todo()
 									: subsumationIssues({ to, from })
 						)
@@ -340,7 +363,7 @@ export const subsumationIssues = ({ to, from }: { to: Type, from: Type }): reado
 				if (Array.isArray(from.elements)) {
 					const toElements = to.elements
 					return from.elements.map(from =>
-						from.kind === 'spread-type'
+						from.kind === 'spread'
 							? todo()
 							: subsumationIssues({ to: toElements, from })
 					).flat()
@@ -361,7 +384,7 @@ export const subsumationIssues = ({ to, from }: { to: Type, from: Type }): reado
 				} else {
 					if (
 						(to.value.start == null || (from.value.start != null && from.value.start >= to.value.start)) &&
-						(to.value.end == null || (from.value.end != null && from.value.end < to.value.end))
+						(to.value.end == null || (from.value.end != null && from.value.end <= to.value.end))
 					) {
 						return NO_ISSUES
 					}
@@ -379,9 +402,115 @@ export const subsumationIssues = ({ to, from }: { to: Type, from: Type }): reado
 				? NO_ISSUES
 				: [basicSubsumationIssueMessage({ to, from })]
 		)
-		case 'unknown-type': return NO_ISSUES
-		case 'poisoned-type': return NO_ISSUES
 	}
+}
+
+const getPropertyType = ({ subject, property }: PropertyType): Type => {
+	switch (subject.kind) {
+		case 'object-type': {
+			if (Array.isArray(subject.entries)) {
+				const found = subject.entries.find(e =>
+					e.kind === 'key-value-type' && subsumes({ to: e.key, from: property })) as KeyValueType | undefined
+
+				if (found) {
+					return found.value
+				} else {
+					// TODO: Search spreads
+				}
+			} else if (subsumes({ to: subject.entries.key, from: property })) {
+				return subject.entries.value
+			}
+		} break
+		case 'array-type': {
+			if (property.kind === 'number-type') {
+				if (Array.isArray(subject.elements)) {
+					// TODO: Search spreads
+
+					switch (typeof property.value) {
+						case 'number': return (subject.elements[property.value] ?? poisoned) as Type
+						case 'object': return todo()
+						case 'undefined': return union(...subject.elements as Type[], nil)
+					}
+				} else {
+					return union(subject.elements, nil)
+				}
+			} else if (property.kind === 'string-type' && property.value === 'length') {
+				if (Array.isArray(subject.elements)) {
+					return literal(subject.elements.length)
+				} else {
+					return number
+				}
+			}
+		} break
+	}
+
+	return poisoned
+}
+
+const getKeysType = ({ subject }: KeysType): Type => {
+	switch (subject.kind) {
+		case 'object-type': {
+			if (Array.isArray(subject.entries)) {
+				// TODO: Combine with spreads
+				return union(...subject.entries.map(e => (e as KeyValueType).key))
+			} else {
+				return subject.entries.key
+			}
+		}
+		case 'array-type': {
+			if (Array.isArray(subject.elements)) {
+				// TODO: Combine with spreads
+				return union(literal({ start: 0, end: subject.elements.length }), literal('length'))
+			} else {
+				return union(number, literal('length'))
+			}
+		}
+	}
+
+	return poisoned
+}
+
+const getValuesType = ({ subject }: ValuesType): Type => {
+	switch (subject.kind) {
+		case 'object-type': {
+			if (Array.isArray(subject.entries)) {
+				// TODO: Combine with spreads
+				return union(...subject.entries.map(e => (e as KeyValueType).value))
+			} else {
+				return subject.entries.value
+			}
+		}
+		case 'array-type': {
+			if (Array.isArray(subject.elements)) {
+				// TODO: Combine with spreads
+				return union(...subject.elements as Type[], literal('length'))
+			} else {
+				return union(subject.elements, literal('length'))
+			}
+		}
+	}
+
+	return poisoned
+}
+
+const getParametersType = ({ subject }: ParametersType): Type => {
+	switch (subject.kind) {
+		case 'function-type': {
+			return { kind: 'array-type', elements: subject.params as Type[] }
+		}
+	}
+
+	return poisoned
+}
+
+const getReturnType = ({ subject }: ReturnTypez): Type => {
+	switch (subject.kind) {
+		case 'function-type': {
+			return subject.returns
+		}
+	}
+
+	return poisoned
 }
 
 // export const simplifyType = (type: Type): Type => {
@@ -390,7 +519,7 @@ export const subsumationIssues = ({ to, from }: { to: Type, from: Type }): reado
 // 			return {
 // 				...type,
 // 				args: type.args.map(arg =>
-// 					arg.kind === 'spread-type'
+// 					arg.kind === 'spread'
 // 						? { ...arg, spread: simplifyType(arg.spread) }
 // 						: simplifyType(arg)
 // 				),
@@ -408,7 +537,7 @@ export const subsumationIssues = ({ to, from }: { to: Type, from: Type }): reado
 // 			elements: (
 // 				Array.isArray(type.entries)
 // 					? type.entries.map(entry =>
-// 						entry.kind === 'spread-type'
+// 						entry.kind === 'spread'
 // 							? { ...entry, spread: simplifyType(entry.spread) }
 // 							: { ...entry, key: simplifyType(entry.key), value: simplifyType(entry.value) }
 // 					)
@@ -420,7 +549,7 @@ export const subsumationIssues = ({ to, from }: { to: Type, from: Type }): reado
 // 			elements: (
 // 				Array.isArray(type.elements)
 // 					? type.elements.map(element =>
-// 						element.kind === 'spread-type'
+// 						element.kind === 'spread'
 // 							? todo()
 // 							: simplifyType(element))
 // 					: simplifyType(type.elements)
@@ -443,7 +572,7 @@ export const displayType = (type: Type | SpreadType | KeyValueType): string => {
 		case 'property-type': return `${displayType(type.subject)}.${displayType(type.property)}`
 		case 'keys-type': return `Keys<${displayType(type.subject)}>`
 		case 'values-type': return `Values<${displayType(type.subject)}>`
-		case 'parameter-type': return `Parameter<${displayType(type.subject)}, ${displayType(type.arg)}>`
+		case 'parameters-type': return `Parameters<${displayType(type.subject)}>`
 		case 'return-type': return `Return<${displayType(type.subject)}>`
 		case 'function-type': return `(${type.params.map(displayType).join(', ')}) => ${displayType(type.returns)}`
 		case 'union-type': return type.members.map(displayType).join(' | ')
@@ -452,7 +581,7 @@ export const displayType = (type: Type | SpreadType | KeyValueType): string => {
 			: displayType(type.entries)} }`
 		case 'key-value-type': return `${displayType(type.key)}: ${displayType(type.value)}`
 		case 'array-type': return Array.isArray(type.elements) ? `[${type.elements.map(displayType).join(', ')}]` : displayType(type.elements) + '[]'
-		case 'spread-type': return `...${displayType(type)}`
+		case 'spread': return `...${displayType(type)}`
 		case 'string-type': return type.value != null ? `'${type.value}'` : 'string'
 		case 'number-type': return type.value == null ? 'number' : typeof type.value === 'number' ? String(type.value) : `${type.value.start ?? ''}..${type.value.end ?? ''}`
 		case 'boolean-type': return type.value != null ? String(type.value) : 'boolean'
