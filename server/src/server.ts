@@ -174,7 +174,10 @@ async function validateTextDocument(textDocument: TextDocument): Promise<Diagnos
 	// The validator creates diagnostics for all uppercase words length 2 and more
 	const text = textDocument.getText()
 
+	const start = Date.now()
 	const parsed = parseModule({ code: text, index: 0 })
+	const parseEnd = Date.now()
+	console.log('ms to parse:', parseEnd - start)
 
 	if (parsed?.kind === 'success') {
 		const diagnostics: Diagnostic[] = []
@@ -201,6 +204,9 @@ async function validateTextDocument(textDocument: TextDocument): Promise<Diagnos
 			},
 			parsed.parsed
 		)
+
+		const checkEnd = Date.now()
+		console.log('ms to check:', checkEnd - parseEnd)
 
 		return diagnostics
 	} else {
@@ -245,7 +251,9 @@ connection.onCompletion(
 			const result = parseModule({ code: document.getText(), index: 0 })
 
 			if (result?.kind === 'success') {
+				const start = Date.now()
 				const completions = getCompletions(result.parsed, document.offsetAt(params.position))
+				console.log('ms to get completions:', Date.now() - start)
 				return completions.map((c, i) => ({
 					label: c.text,
 					kind: CompletionItemKind.Text,
@@ -279,10 +287,12 @@ connection.onHover(async (params) => {
 		const result = parseModule({ code: document.getText(), index: 0 })
 
 		if (result?.kind === 'success') {
+			const start = Date.now()
 			const selection = findASTNodeAtPosition(document.offsetAt(params.position), result.parsed)
 
 			if (selection?.kind === 'local-identifier') {
 				const type = inferType(selection)
+				console.log('ms to infer type:', Date.now() - start)
 
 				return {
 					contents: {
