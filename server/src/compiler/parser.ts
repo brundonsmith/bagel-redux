@@ -81,7 +81,7 @@ export type NumberLiteral = Readonly<{ kind: 'number-literal', value: number } &
 export type BooleanLiteral = Readonly<{ kind: 'boolean-literal', value: boolean } & ASTInfo>
 export type NilLiteral = Readonly<{ kind: 'nil-literal' } & ASTInfo>
 export type LocalIdentifier = Readonly<{ kind: 'local-identifier', identifier: string } & ASTInfo>
-export type Range = Readonly<{ kind: 'range', start: number | undefined, end: number | undefined } & ASTInfo>
+export type Range = Readonly<{ kind: 'range', start: NumberLiteral | undefined, end: NumberLiteral | undefined } & ASTInfo>
 
 export type ObjectLiteral<T> = Readonly<{ kind: 'object-literal', entries: Array<KeyValue<T> | Spread<T>> } & ASTInfo>
 export type ArrayLiteral<T> = Readonly<{ kind: 'array-literal', elements: Array<T | Spread<T>> } & ASTInfo>
@@ -277,47 +277,6 @@ export const stringTypeExpression: Parser<StringTypeExpression, Err> = map(
 	} as const)
 )
 
-const range: Parser<Range, Err> = map(
-	filter(
-		tuple(
-			optional(map(number, Number)),
-			exact('..'),
-			optional(map(number, Number))
-		),
-		([start, _0, end]) => start != null || end != null
-	),
-	([start, _0, end], src) => ({
-		kind: 'range',
-		start,
-		end,
-		src
-	})
-)
-
-export const numberTypeExpression: Parser<NumberTypeExpression, Err> = map(
-	exact('number'),
-	(_0, src) => ({
-		kind: 'number-type-expression',
-		src
-	} as const)
-)
-
-export const booleanTypeExpression: Parser<BooleanTypeExpression, Err> = map(
-	exact('boolean'),
-	(_0, src) => ({
-		kind: 'boolean-type-expression',
-		src
-	} as const)
-)
-
-export const unknownTypeExpression: Parser<UnknownTypeExpression, Err> = map(
-	exact('unknown'),
-	(_0, src) => ({
-		kind: 'unknown-type-expression',
-		src
-	})
-)
-
 export const stringLiteral: Parser<StringLiteral, Err> = map(
 	string,
 	(value, src) => ({
@@ -351,6 +310,47 @@ export const nilLiteral: Parser<NilLiteral, Err> = map(
 		kind: 'nil-literal',
 		src
 	} as const)
+)
+
+const range: Parser<Range, Err> = map(
+	filter(
+		tuple(
+			optional(numberLiteral),
+			exact('..'),
+			optional(numberLiteral)
+		),
+		([start, _0, end]) => start != null || end != null
+	),
+	([start, _0, end], src) => ({
+		kind: 'range',
+		start,
+		end,
+		src
+	})
+)
+
+export const numberTypeExpression: Parser<NumberTypeExpression, Err> = map(
+	exact('number'),
+	(_0, src) => ({
+		kind: 'number-type-expression',
+		src
+	} as const)
+)
+
+export const booleanTypeExpression: Parser<BooleanTypeExpression, Err> = map(
+	exact('boolean'),
+	(_0, src) => ({
+		kind: 'boolean-type-expression',
+		src
+	} as const)
+)
+
+export const unknownTypeExpression: Parser<UnknownTypeExpression, Err> = map(
+	exact('unknown'),
+	(_0, src) => ({
+		kind: 'unknown-type-expression',
+		src
+	})
 )
 
 export const typeExpression: Precedence<Parser<TypeExpression, Err>> = startingAfter => input => precedence(
@@ -636,9 +636,9 @@ export const findASTNodeAtPosition = (position: number, ast: AST): AST | undefin
 		case 'if-else-expression': return [...ast.cases.map(findIn), ast.defaultCase && findIn(ast.defaultCase), ast].filter(exists)[0]
 		case 'if-else-expression-case': return [findIn(ast.condition), findIn(ast.outcome), ast].filter(exists)[0]
 		case 'name-and-type': return [findIn(ast.name), ast.type && findIn(ast.type), ast].filter(exists)[0]
+		case 'range': return [ast.start && findIn(ast.start), ast.end && findIn(ast.end), ast].filter(exists)[0]
 
 		// atomic; we've gotten there
-		case 'range':
 		case 'string-type-expression':
 		case 'number-type-expression':
 		case 'boolean-type-expression':
@@ -650,6 +650,9 @@ export const findASTNodeAtPosition = (position: number, ast: AST): AST | undefin
 		case 'local-identifier':
 		case 'plain-identifier':
 			return ast
+		default:
+			// @ts-expect-error kind should be of type `never`
+			ast.kind
 	}
 }
 

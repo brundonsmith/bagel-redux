@@ -295,7 +295,13 @@ export const resolveType = (typeExpression: TypeExpression): Type => {
 		case 'boolean-literal':
 			return literal(typeExpression.value)
 		case 'range':
-			return { kind: 'number-type', value: typeExpression }
+			return {
+				kind: 'number-type',
+				value: {
+					start: typeExpression.start?.value,
+					end: typeExpression.end?.value,
+				}
+			}
 		case 'string-type-expression': return string
 		case 'number-type-expression': return number
 		case 'boolean-type-expression': return boolean

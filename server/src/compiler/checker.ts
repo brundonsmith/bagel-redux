@@ -167,6 +167,9 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 						src: ast.src
 					})
 				}
+
+				check(ctx, ast.start)
+				check(ctx, ast.end)
 			} break
 			case 'if-else-expression-case': {
 				check(ctx, ast.condition)
