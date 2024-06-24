@@ -119,7 +119,7 @@ export const inferType = (expression: Expression): Type => {
 		case 'function-expression': {
 			return {
 				kind: 'function-type',
-				params: expression.args.map(a => a.type ? resolveType(a.type) : unknown),
+				params: expression.params.map(a => a.type ? resolveType(a.type) : unknown),
 				returns: inferType(expression.body)
 			}
 		}
@@ -223,28 +223,37 @@ const declarationType = (declaration: ReturnType<typeof resolveDeclaration>): Ty
 	}
 }
 
-export const resolveDeclaration = (name: string, at: AST | undefined): ConstDeclaration | NameAndType | undefined => {
+export const resolveDeclaration = (name: string, at: AST | undefined): ConstDeclaration | NameAndType | undefined =>
+	declarationsInScope(at).find(decl => {
+		switch (decl.kind) {
+			case 'const-declaration': return decl.declared.name.identifier === name
+			case 'name-and-type': return decl.name.identifier === name
+		}
+	})
+
+export const declarationsInScope = (at: AST | undefined): Array<ConstDeclaration | NameAndType> => {
 	if (at == null) {
-		return undefined
+		return []
 	}
 
-	switch (at.parent?.kind) {
+	const declarationsInParentScopes = declarationsInScope(at?.parent)
+
+	switch (at?.parent?.kind) {
 		case 'module': {
-			const thisDeclarationIndex = at.parent.declarations.indexOf(at as Declaration)
-			const found = at.parent.declarations.find((d, i) => d.declared.name.identifier === name && i < thisDeclarationIndex)
-			if (found) {
-				return found
-			}
-		} break
+			return [
+				...at.parent.declarations,
+				...declarationsInParentScopes
+			]
+		}
 		case 'function-expression': {
-			const found = at.parent.args.find(arg => arg.name.identifier === name)
-			if (found) {
-				return found
-			}
-		} break
+			return [
+				...at.parent.params,
+				...declarationsInParentScopes
+			]
+		}
 	}
 
-	return resolveDeclaration(name, at?.parent)
+	return declarationsInParentScopes
 }
 
 export const resolveType = (typeExpression: TypeExpression): Type => {

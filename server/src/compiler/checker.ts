@@ -95,7 +95,7 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 					}
 				}
 
-				check(ctx, ast.args)
+				check(ctx, ast.params)
 				check(ctx, ast.returnType)
 				check(ctx, ast.body)
 			} break

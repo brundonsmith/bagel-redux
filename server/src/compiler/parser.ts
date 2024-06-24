@@ -70,7 +70,7 @@ export type ObjectExpression = Readonly<{ kind: 'object-literal', entries: Array
 export type ArrayExpression = Readonly<{ kind: 'array-literal', elements: Array<Expression | Readonly<{ kind: 'spread', spread: Expression } & ASTInfo>> } & ASTInfo>
 export type PropertyAccessExpression = Readonly<{ kind: 'property-access-expression', subject: Expression, property: Expression } & ASTInfo>
 export type AsExpression = Readonly<{ kind: 'as-expression', expression: Expression, type: TypeExpression } & ASTInfo>
-export type FunctionExpression = Readonly<{ kind: 'function-expression', args: NameAndType[], returnType: TypeExpression | undefined, body: Expression } & ASTInfo>
+export type FunctionExpression = Readonly<{ kind: 'function-expression', params: NameAndType[], returnType: TypeExpression | undefined, body: Expression } & ASTInfo>
 export type NameAndType = Readonly<{ kind: 'name-and-type', name: PlainIdentifier, type: TypeExpression | undefined } & ASTInfo>
 export type Invocation = Readonly<{ kind: 'invocation', subject: Expression, args: Expression[] } & ASTInfo>
 export type BinaryOperationExpression = Readonly<{ kind: 'binary-operation-expression', left: Expression, op: '+' | '-' | '*' | '/', right: Expression } & ASTInfo>
@@ -446,9 +446,9 @@ const functionExpression: Parser<FunctionExpression, Err> = input => map(
 		whitespace,
 		expression()
 	),
-	([_0, _1, args, _3, _4, _5, returnType, _6, _7, _8, body], src) => ({
+	([_0, _1, params, _3, _4, _5, returnType, _6, _7, _8, body], src) => ({
 		kind: 'function-expression',
-		args,
+		params,
 		returnType,
 		body,
 		src
@@ -610,3 +610,47 @@ const parentChildren = (ast: AST) => {
 		}
 	}
 }
+
+export const findASTNodeAtPosition = (position: number, ast: AST): AST | undefined => {
+	if (position < ast.src.start || position >= ast.src.end) {
+		return undefined
+	}
+
+	const findIn = (ast: AST) => findASTNodeAtPosition(position, ast)
+
+	switch (ast.kind) {
+		case 'spread': return [findIn(ast.spread), ast].filter(exists)[0]
+		case 'module': return [...ast.declarations.map(findIn), ast].filter(exists)[0]
+		case 'const-declaration': return [findIn(ast.declared), findIn(ast.value), ast].filter(exists)[0]
+		case 'typeof-type-expression': return [findIn(ast.expression), ast].filter(exists)[0]
+		case 'function-type-expression': return [...ast.params.map(findIn), findIn(ast.returns), ast].filter(exists)[0]
+		case 'union-type-expression': return [...ast.members.map(findIn), ast].filter(exists)[0]
+		case 'object-literal': return [...ast.entries.map(findIn), ast].filter(exists)[0]
+		case 'array-literal': return [...ast.elements.map(findIn), ast].filter(exists)[0]
+		case 'key-value': return [findIn(ast.key), findIn(ast.value), ast].filter(exists)[0]
+		case 'property-access-expression': return [findIn(ast.subject), findIn(ast.property), ast].filter(exists)[0]
+		case 'as-expression': return [findIn(ast.expression), findIn(ast.type), ast].filter(exists)[0]
+		case 'function-expression': return [...ast.params.map(findIn), ast.returnType && findIn(ast.returnType), findIn(ast.body), ast].filter(exists)[0]
+		case 'invocation': return [findIn(ast.subject), ...ast.args.map(findIn), ast].filter(exists)[0]
+		case 'binary-operation-expression': return [findIn(ast.left), findIn(ast.right), ast].filter(exists)[0]
+		case 'if-else-expression': return [...ast.cases.map(findIn), ast.defaultCase && findIn(ast.defaultCase), ast].filter(exists)[0]
+		case 'if-else-expression-case': return [findIn(ast.condition), findIn(ast.outcome), ast].filter(exists)[0]
+		case 'name-and-type': return [findIn(ast.name), ast.type && findIn(ast.type), ast].filter(exists)[0]
+
+		// atomic; we've gotten there
+		case 'range':
+		case 'string-type-expression':
+		case 'number-type-expression':
+		case 'boolean-type-expression':
+		case 'string-literal':
+		case 'number-literal':
+		case 'boolean-literal':
+		case 'nil-literal':
+		case 'unknown-type-expression':
+		case 'local-identifier':
+		case 'plain-identifier':
+			return ast
+	}
+}
+
+const exists = <T>(x: T | null | undefined): x is T => x != null

@@ -22,9 +22,10 @@ import {
 import {
 	TextDocument
 } from 'vscode-languageserver-textdocument'
-import { parseModule } from './compiler/parser'
+import { findASTNodeAtPosition, parseModule } from './compiler/parser'
 import { check } from './compiler/checker'
 import { getCompletions } from './compiler/completions'
+import { displayType, inferType } from './compiler/types'
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -61,6 +62,7 @@ connection.onInitialize((params: InitializeParams) => {
 			completionProvider: {
 				resolveProvider: true
 			},
+			hoverProvider: {},
 			diagnosticProvider: {
 				interFileDependencies: false,
 				workspaceDiagnostics: false
@@ -238,7 +240,6 @@ connection.onDidChangeWatchedFiles(_change => {
 // This handler provides the initial list of the completion items.
 connection.onCompletion(
 	(params: TextDocumentPositionParams): CompletionItem[] => {
-
 		const document = documents.get(params.textDocument.uri)
 		if (document !== undefined) {
 			const result = parseModule({ code: document.getText(), index: 0 })
@@ -271,6 +272,31 @@ connection.onCompletionResolve(
 		return item
 	}
 )
+
+connection.onHover(async (params) => {
+	const document = documents.get(params.textDocument.uri)
+	if (document !== undefined) {
+		const result = parseModule({ code: document.getText(), index: 0 })
+
+		if (result?.kind === 'success') {
+			const selection = findASTNodeAtPosition(document.offsetAt(params.position), result.parsed)
+
+			if (selection?.kind === 'local-identifier') {
+				const type = inferType(selection)
+
+				return {
+					contents: {
+						kind: 'plaintext',
+						language: 'bagel',
+						value: displayType(type)
+					}
+				}
+			}
+		}
+	}
+
+	return undefined
+})
 
 // Make the text document manager listen on the connection
 // for open, change and close text document events
