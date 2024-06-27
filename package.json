@@ -71,7 +71,9 @@
 		"watch": "tsc -b -w",
 		"lint": "eslint ./client/src ./server/src --ext .ts,.tsx",
 		"postinstall": "cd client && npm install && cd ../server && npm install && cd ..",
-		"test": "npm run compile && ava"
+		"test": "npm run compile && ava",
+		"bgl-transpile": "npm run compile && node server/out/compiler/compiler.js transpile",
+		"bgl-bundle": "npm run compile && node server/out/compiler/compiler.js bundle"
 	},
 	"devDependencies": {
 		"@types/mocha": "^10.0.6",
