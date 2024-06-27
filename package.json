@@ -17,7 +17,7 @@
 		"vscode": "^1.75.0"
 	},
 	"activationEvents": [
-		"onLanguage:plaintext"
+		"onLanguage:bagel"
 	],
 	"main": "./client/out/extension",
 	"contributes": {
@@ -43,7 +43,27 @@
 					"description": "Traces the communication between VS Code and the language server."
 				}
 			}
-		}
+		},
+		"languages": [
+			{
+				"id": "bagel",
+				"aliases": [
+					"Bagel",
+					"bagel"
+				],
+				"extensions": [
+					"bgl"
+				],
+				"configuration": "./language-configuration.json"
+			}
+		],
+		"grammars": [
+			{
+				"language": "bagel",
+				"scopeName": "source.bagel",
+				"path": "./syntaxes/bagel.tmLanguage.json"
+			}
+		]
 	},
 	"scripts": {
 		"vscode:prepublish": "npm run compile",
