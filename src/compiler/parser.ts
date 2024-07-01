@@ -143,12 +143,88 @@ const precedenceWithContext = <TParsers extends Parser<ASTInfo, unknown>[]>(
 			: all
 }
 
+const linesComment = map(
+	manySep1(
+		map(
+			tuple(
+				exact('//'),
+				optional(exact(' ')), // ignore first space if present
+				takeUntil('\n')
+			),
+			([_0, _1, content]) => content.substring(0, content.length - 1)
+		),
+		whitespace
+	),
+	(lines, src) => ({
+		kind: 'comment' as const,
+		comment: lines.join('\n'),
+		src
+	})
+)
+
+const blockComment = map(
+	tuple(
+		exact('/*'),
+		subParser(
+			takeUntil('*/'),
+			map(
+				tuple(
+					optional(exact('*')),
+					whitespace,
+					manySep0(
+						map(
+							tuple(
+								optional(exact('*')), // ignore star if present
+								optional(exact(' ')), // ignore first space if present
+								takeUntil('\n')
+							),
+							([_0, _1, content]) => content.substring(0, content.length - 1)
+						),
+						whitespace
+					),
+					whitespace,
+				),
+				([_0, _1, lines, _3]) => lines
+			)
+		)
+	),
+	([_0, lines], src) => ({
+		kind: 'comment' as const,
+		comment: lines.join('\n'),
+		src
+	})
+)
+
+const whitespaceAndComments: BagelParser<Comment[]> = map(
+	tuple(
+		whitespace,
+		manySep0(
+			oneOf(linesComment, blockComment),
+			whitespace
+		),
+		whitespace
+	),
+	([_0, comments, _1]) => comments
+)
+
+const preceded = <TParsed extends ASTInfo>(parser: BagelParser<TParsed>): BagelParser<TParsed> => map(
+	tuple(
+		whitespaceAndComments,
+		parser
+	),
+	([precedingComments, parsed]) => ({
+		...parsed,
+		precedingComments
+	})
+)
+
 const expect = (str: string) => required(exact(str), () => `Expected "${str}"`)
 
+const identifierRegex = /[a-zA-Z0-9_]/
 const identifier: BagelParser<string> = map(
 	tuple(
 		alphaChar,
-		take0(oneOf(alphaChar, numericChar, exact('_')))
+		take0(filter(char, ch => identifierRegex.test(ch)))
 	),
 	(_, src) => src.code.substring(src.start, src.end)
 )
@@ -159,6 +235,15 @@ const localIdentifier: BagelParser<LocalIdentifier> = map(
 	identifier,
 	(parsed, src) => ({
 		kind: 'local-identifier',
+		identifier: parsed,
+		src
+	} as const)
+)
+
+const plainIdentifier: BagelParser<PlainIdentifier> = map(
+	identifier,
+	(parsed, src) => ({
+		kind: 'plain-identifier',
 		identifier: parsed,
 		src
 	} as const)
@@ -220,33 +305,7 @@ export const parseModule: BagelParser<ModuleAST> = instrument('parseModule', inp
 	}
 })
 
-const declaration: BagelParser<Declaration> = input => oneOf(
-	importDeclaration,
-	typeDeclaration,
-	constDeclaration
-)(input)
-
-const importDeclaration: BagelParser<ImportDeclaration | BrokenSubtree> = input => map(
-	tuple(
-		exact('from'),
-		preceded(stringLiteral),
-		expect('import'),
-		expect('{'),
-		manySep0(preceded(importItem), tuple(whitespace, exact(','))),
-		expect('}')
-	),
-	([_0, uri, _1, _2, imports, _3], src) =>
-		uri.kind === 'string-literal'
-			? {
-				kind: 'import-declaration' as const,
-				uri,
-				imports,
-				src
-			}
-			: uri
-)(input)
-
-const importItem: BagelParser<ImportItem> = input => map(
+const importItem: BagelParser<ImportItem> = map(
 	tuple(
 		plainIdentifier,
 		optional(
@@ -268,7 +327,39 @@ const importItem: BagelParser<ImportItem> = input => map(
 		alias,
 		src
 	})
-)(input)
+)
+
+const stringLiteral: BagelParser<StringLiteral | BrokenSubtree> = map(
+	string,
+	(value, src) =>
+		typeof value === 'string'
+			? {
+				kind: 'string-literal',
+				value,
+				src
+			} as const
+			: value
+)
+
+const importDeclaration: BagelParser<ImportDeclaration | BrokenSubtree> = map(
+	tuple(
+		exact('from'),
+		preceded(stringLiteral),
+		expect('import'),
+		expect('{'),
+		manySep0(preceded(importItem), tuple(whitespace, exact(','))),
+		expect('}')
+	),
+	([_0, uri, _1, _2, imports, _3], src) =>
+		uri.kind === 'string-literal'
+			? {
+				kind: 'import-declaration' as const,
+				uri,
+				imports,
+				src
+			}
+			: uri
+)
 
 const typeDeclaration: BagelParser<TypeDeclaration> = input => map(
 	tuple(
@@ -309,6 +400,12 @@ const constDeclaration: BagelParser<ConstDeclaration> = input => map(
 		src
 	} as const)
 )(input)
+
+const declaration: BagelParser<Declaration> = oneOf(
+	importDeclaration,
+	typeDeclaration,
+	constDeclaration
+)
 
 const nameAndType: BagelParser<NameAndType> = input => map(
 	tuple(
@@ -469,18 +566,6 @@ const stringTypeExpression: BagelParser<StringTypeExpression> = map(
 		value,
 		src
 	} as const)
-)
-
-const stringLiteral: BagelParser<StringLiteral | BrokenSubtree> = map(
-	string,
-	(value, src) =>
-		typeof value === 'string'
-			? {
-				kind: 'string-literal',
-				value,
-				src
-			} as const
-			: value
 )
 
 const numberLiteral: BagelParser<NumberLiteral> = map(
@@ -684,8 +769,9 @@ const invocation: BagelParser<Invocation> = input => map(
 )(input)
 
 const binaryOpPrecedence = (ops: BinaryOperator[]) => {
+	const exactOps = oneOf(...ops.map(exact))
 	const fn: BagelParser<BinaryOperationExpression> = input => map(
-		tuple(expression(fn), whitespace, oneOf(...ops.map(exact)), whitespace, expression(fn)),
+		tuple(expression(fn), whitespace, exactOps, whitespace, expression(fn)),
 		([left, _0, op, _1, right], src) => ({
 			kind: 'binary-operation-expression',
 			left,
@@ -765,15 +851,6 @@ const spread = <T>(inner: BagelParser<T>): BagelParser<Spread<T>> => map(
 	} as const)
 )
 
-const plainIdentifier: BagelParser<PlainIdentifier> = map(
-	identifier,
-	(parsed, src) => ({
-		kind: 'plain-identifier',
-		identifier: parsed,
-		src
-	} as const)
-)
-
 // @ts-expect-error dfsgdsgh
 const parenthesisExpression = input => parenthesis(expression())(input)
 // @ts-expect-error dfsgdsgh
@@ -804,82 +881,6 @@ export const expression: Precedence<BagelParser<Expression>> = precedenceWithCon
 	booleanLiteral,
 	nilLiteral,
 	localIdentifier,
-)
-
-const linesComment = map(
-	manySep1(
-		map(
-			tuple(
-				exact('//'),
-				optional(exact(' ')), // ignore first space if present
-				takeUntil('\n')
-			),
-			([_0, _1, content]) => content.substring(0, content.length - 1)
-		),
-		whitespace
-	),
-	(lines, src) => ({
-		kind: 'comment' as const,
-		comment: lines.join('\n'),
-		src
-	})
-)
-
-const blockComment = map(
-	tuple(
-		exact('/*'),
-		// takeUntil('*/')
-		subParser(
-			takeUntil('*/'),
-			map(
-				tuple(
-					optional(exact('*')),
-					whitespace,
-					manySep0(
-						map(
-							tuple(
-								optional(exact('*')), // ignore star if present
-								optional(exact(' ')), // ignore first space if present
-								takeUntil('\n')
-							),
-							([_0, _1, content]) => content.substring(0, content.length - 1)
-						),
-						whitespace
-					),
-					whitespace,
-				),
-				([_0, _1, lines, _3]) => lines
-			)
-		)
-	),
-	([_0, lines], src) => ({
-		kind: 'comment' as const,
-		comment: lines.join('\n'),
-		src
-	})
-)
-
-const whitespaceAndComments: BagelParser<Comment[]> = map(
-	tuple(
-		whitespace,
-		manySep0(
-			oneOf(linesComment, blockComment),
-			whitespace
-		),
-		whitespace
-	),
-	([_0, comments, _1]) => comments
-)
-
-const preceded = <TParsed extends ASTInfo>(parser: BagelParser<TParsed>): BagelParser<TParsed> => map(
-	tuple(
-		whitespaceAndComments,
-		parser
-	),
-	([precedingComments, parsed]) => ({
-		...parsed,
-		precedingComments
-	})
 )
 
 const parentChildren = (ast: AST) => {

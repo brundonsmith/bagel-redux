@@ -200,19 +200,19 @@ export const char: Parser<string, never> = input => (
 /**
  * Parse a single whitespace character
  */
-export const whitespaceChar: Parser<string, never> = filter(char, ch => ch.match(whitespaceRegex) != null)
+export const whitespaceChar: Parser<string, never> = filter(char, ch => whitespaceRegex.test(ch))
 export const whitespaceRegex = /[\s]/
 
 /**
  * Parse a single numeric character
  */
-export const numericChar: Parser<string, never> = filter(char, ch => ch.match(numericRegex) != null)
+export const numericChar: Parser<string, never> = filter(char, ch => numericRegex.test(ch))
 export const numericRegex = /[0-9]/
 
 /**
  * Parse a single alphabetic character
  */
-export const alphaChar: Parser<string, never> = filter(char, ch => ch.match(alphaRegex) != null)
+export const alphaChar: Parser<string, never> = filter(char, ch => alphaRegex.test(ch))
 export const alphaRegex = /[A-Za-z]/
 
 // --- Combinators ---
