@@ -115,7 +115,54 @@ export type BrokenSubtree = Readonly<{ kind: 'broken-subtree', error: string } &
 
 type BagelParser<T> = Parser<T, string>
 
+const precedenceWithContext = <TParsers extends Parser<ASTInfo, unknown>[]>(
+	context: ASTInfo['context'],
+	...levels: TParsers
+): Precedence<TParsers[number]> => {
+	// @ts-expect-error dsfgh
+	const all = ___memo(map(
+		oneOf(...levels),
+		parsed => ({ ...parsed, context })
+	))
+	const byLevel = new Map<TParsers[number], TParsers[number]>()
+	for (let i = 0; i < levels.length; i++) {
+		byLevel.set(
+			levels[i]!,
+			// @ts-expect-error dsfgh
+			___memo(map(
+				oneOf(...levels.slice(i + 1)),
+				parsed => ({ ...parsed, context })
+			))
+		)
+	}
+
+	return startingAfter =>
+		// @ts-expect-error dsfgh
+		startingAfter
+			? byLevel.get(startingAfter)
+			: all
+}
+
 const expect = (str: string) => required(exact(str), () => `Expected "${str}"`)
+
+const identifier: BagelParser<string> = map(
+	tuple(
+		alphaChar,
+		take0(oneOf(alphaChar, numericChar, exact('_')))
+	),
+	(_, src) => src.code.substring(src.start, src.end)
+)
+
+export const isValidIdentifier = (str: string) => identifier(input(str))?.input.index === str.length
+
+const localIdentifier: BagelParser<LocalIdentifier> = map(
+	identifier,
+	(parsed, src) => ({
+		kind: 'local-identifier',
+		identifier: parsed,
+		src
+	} as const)
+)
 
 const string = backtrack(
 	map(
@@ -503,14 +550,22 @@ const unknownTypeExpression: BagelParser<UnknownTypeExpression> = map(
 	})
 )
 
-const typeExpression: Precedence<BagelParser<TypeExpression>> = ___memo(startingAfter => ___memo(input => precedenceWithContext(
+// @ts-expect-error dfsgdsgh
+const parenthesisTypeExpression = input => parenthesis(typeExpression())(input)
+// @ts-expect-error dfsgdsgh
+const objectLiteralTypeExpression = input => objectLiteral(typeExpression())(input)
+// @ts-expect-error dfsgdsgh
+const arrayLiteralTypeExpression = input => arrayLiteral(typeExpression())(input)
+
+// @ts-expect-error sdfjhg
+const typeExpression: Precedence<BagelParser<TypeExpression>> = precedenceWithContext(
 	'type-expression',
 	typeofTypeExpression,
 	functionTypeExpression,
 	unionTypeExpression,
-	parenthesis(typeExpression()),
-	objectLiteral(typeExpression()),
-	arrayLiteral(typeExpression()),
+	parenthesisTypeExpression,
+	objectLiteralTypeExpression,
+	arrayLiteralTypeExpression,
 	stringTypeExpression,
 	numberTypeExpression,
 	booleanTypeExpression,
@@ -521,8 +576,7 @@ const typeExpression: Precedence<BagelParser<TypeExpression>> = ___memo(starting
 	booleanLiteral,
 	nilLiteral,
 	localIdentifier,
-	// @ts-expect-error sdfkjgh
-)(startingAfter)(input)))
+)
 
 const propertyAccessExpression: BagelParser<PropertyAccessExpression> = input => map(
 	tuple(
@@ -711,25 +765,6 @@ const spread = <T>(inner: BagelParser<T>): BagelParser<Spread<T>> => map(
 	} as const)
 )
 
-const identifier: BagelParser<string> = map(
-	tuple(
-		alphaChar,
-		take0(oneOf(alphaChar, numericChar, exact('_')))
-	),
-	(_, src) => src.code.substring(src.start, src.end)
-)
-
-export const isValidIdentifier = (str: string) => identifier(input(str))?.input.index === str.length
-
-const localIdentifier: BagelParser<LocalIdentifier> = map(
-	identifier,
-	(parsed, src) => ({
-		kind: 'local-identifier',
-		identifier: parsed,
-		src
-	} as const)
-)
-
 const plainIdentifier: BagelParser<PlainIdentifier> = map(
 	identifier,
 	(parsed, src) => ({
@@ -739,7 +774,15 @@ const plainIdentifier: BagelParser<PlainIdentifier> = map(
 	} as const)
 )
 
-export const expression: Precedence<BagelParser<Expression>> = ___memo(startingAfter => ___memo(input => precedenceWithContext(
+// @ts-expect-error dfsgdsgh
+const parenthesisExpression = input => parenthesis(expression())(input)
+// @ts-expect-error dfsgdsgh
+const objectLiteralExpression = input => objectLiteral(expression())(input)
+// @ts-expect-error dfsgdsgh
+const arrayLiteralExpression = input => arrayLiteral(expression())(input)
+
+// @ts-expect-error sdfjhg
+export const expression: Precedence<BagelParser<Expression>> = precedenceWithContext(
 	'expression',
 	asExpression,
 	invocation,
@@ -753,16 +796,15 @@ export const expression: Precedence<BagelParser<Expression>> = ___memo(startingA
 	propertyAccessExpression,
 	ifElseExpression,
 	functionExpression,
-	parenthesis(expression()),
-	objectLiteral(expression()),
-	arrayLiteral(expression()),
+	parenthesisExpression,
+	objectLiteralExpression,
+	arrayLiteralExpression,
 	stringLiteral,
 	numberLiteral,
 	booleanLiteral,
 	nilLiteral,
 	localIdentifier,
-	// @ts-expect-error sdfjhg
-)(startingAfter)(input)))
+)
 
 const linesComment = map(
 	manySep1(
@@ -839,17 +881,6 @@ const preceded = <TParsed extends ASTInfo>(parser: BagelParser<TParsed>): BagelP
 		precedingComments
 	})
 )
-
-const precedenceWithContext = <TParsers extends Parser<ASTInfo, unknown>[]>(
-	context: ASTInfo['context'],
-	...levels: TParsers
-): Precedence<TParsers[number]> => startingAfter =>
-		map(
-			startingAfter == null
-				? oneOf(...levels)
-				: oneOf(...levels.slice(levels.indexOf(startingAfter) + 1)),
-			parsed => ({ ...parsed, context })
-		)
 
 const parentChildren = (ast: AST) => {
 	for (const key in ast as any) {
