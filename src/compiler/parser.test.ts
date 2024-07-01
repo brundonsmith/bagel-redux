@@ -1,9 +1,9 @@
 import test from 'ava'
-import { AST, arrayLiteral, booleanLiteral, expression, localIdentifier, nilLiteral, numberLiteral, objectLiteral, stringLiteral } from './parser'
+import { AST, expression } from './parser'
 import { Parser } from './parser-combinators'
 
-function testCompleteParse<T extends AST>(name: string, fn: Parser<T, unknown>, code: string, parsed: T) {
-  test(name, t => {
+function testCompleteParse<T extends AST>(fn: Parser<T, unknown>, code: string, parsed: T) {
+  test(code, t => {
     const result = fn({ code, index: 0 })
 
     if (result?.kind === 'success') {
@@ -24,22 +24,30 @@ function testCompleteParse<T extends AST>(name: string, fn: Parser<T, unknown>, 
 
 const src = (code: string) => ({ code, start: 0, end: code.length })
 
-testCompleteParse('local identifier', localIdentifier, 'a', { kind: 'local-identifier', identifier: 'a', src: src('a') })
-testCompleteParse('nil literal', nilLiteral, 'nil', { kind: 'nil-literal', src: src('nil') })
-testCompleteParse('boolean literal false', booleanLiteral, 'false', { kind: 'boolean-literal', value: false, src: src('false') })
-testCompleteParse('boolean literal true', booleanLiteral, 'true', { kind: 'boolean-literal', value: true, src: src('true') })
-testCompleteParse('number literal', numberLiteral, '12345', { kind: 'number-literal', value: 12345, src: src('12345') })
-testCompleteParse('string literal', stringLiteral, '\'hello world\'', { kind: 'string-literal', value: 'hello world', src: src('\'hello world\'') })
-testCompleteParse('array literal', arrayLiteral(expression()), '[true, 12, nil]', {
+testCompleteParse(expression(), 'a', { kind: 'local-identifier', identifier: 'a', src: src('a') })
+testCompleteParse(expression(), 'nil', { kind: 'nil-literal', src: src('nil') })
+testCompleteParse(expression(), 'false', { kind: 'boolean-literal', value: false, src: src('false') })
+testCompleteParse(expression(), 'true', { kind: 'boolean-literal', value: true, src: src('true') })
+testCompleteParse(expression(), '12345', { kind: 'number-literal', value: 12345, src: src('12345') })
+testCompleteParse(expression(), '\'hello world\'', { kind: 'string-literal', value: 'hello world', src: src('\'hello world\'') })
+testCompleteParse(expression(), '[true,\n// foo\n 12, nil]', {
   kind: 'array-literal',
   elements: [
-    { kind: 'boolean-literal', value: true, src: { code: '[true, 12, nil]', start: 1, end: 5 } },
-    { kind: 'number-literal', value: 12, src: { code: '[true, 12, nil]', start: 7, end: 9 } },
-    { kind: 'nil-literal', src: { code: '[true, 12, nil]', start: 11, end: 14 } }
+    { kind: 'boolean-literal', value: true, src: { code: '[true,\n// foo\n 12, nil]', start: 1, end: 5 }, precedingComments: [] },
+    {
+      kind: 'number-literal', value: 12, src: { code: '[true,\n// foo\n 12, nil]', start: 15, end: 17 }, precedingComments: [
+        {
+          kind: 'comment',
+          comment: 'foo',
+          src: { code: '[true,\n// foo\n 12, nil]', end: 14, start: 7, },
+        },
+      ],
+    },
+    { kind: 'nil-literal', src: { code: '[true,\n// foo\n 12, nil]', start: 19, end: 22 }, precedingComments: [] }
   ],
-  src: src('[true, 12, nil]')
+  src: src('[true,\n// foo\n 12, nil]')
 })
-testCompleteParse('object literal', objectLiteral(expression()), '{ a: true, b: 12, c: nil }', {
+testCompleteParse(expression(), '{ a: true, b: 12, c: nil }', {
   kind: 'object-literal',
   entries: [
     {

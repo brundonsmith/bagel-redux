@@ -114,11 +114,11 @@ export const exact = <T extends string>(str: T): Parser<T, never> => input => {
  */
 export const filter = <TParsed, TError>(
 	parser: Parser<TParsed, TError>,
-	pred: (res: TParsed) => boolean
+	pred: (res: TParsed, input: ParseInput) => boolean
 ): Parser<TParsed, TError> => input => {
 	const res = parser(input)
 
-	if (res?.kind === 'success' && !pred(res.parsed)) {
+	if (res?.kind === 'success' && !pred(res.parsed, input)) {
 		return undefined
 	} else {
 		return res
@@ -136,6 +136,25 @@ export const map = <TParsed, TError, TMapped>(
 
 	if (res?.kind === 'success') {
 		return { ...res, parsed: fn(res.parsed, res.src) }
+	} else {
+		return res
+	}
+}
+
+export const subParser = <TParsed, TError>(
+	parser: Parser<string, TError>,
+	mapped: Parser<TParsed, TError>
+): Parser<TParsed, TError> => input => {
+	const res = parser(input)
+
+	if (res?.kind === 'success') {
+		const mappedRes = mapped({ code: res.parsed, index: 0 })
+
+		if (mappedRes != null) {
+			return { ...mappedRes, input: res.input, src: res.src }
+		} else {
+			return mappedRes
+		}
 	} else {
 		return res
 	}
@@ -304,13 +323,13 @@ export const many1 = <TParsed, TError>(item: Parser<TParsed, TError>): Parser<TP
 /**
  * Parse 0 or more characters, where `chParser` is a 1-character parser, returned as a single string
  */
-export const take0 = <TError>(charParser: Parser<string, TError>): Parser<string, TError> => input => {
+export const take0 = <TError>(parser: Parser<string, TError>): Parser<string, TError> => input => {
 	let nextInput = input
 	let res = ''
 
 	// eslint-disable-next-line no-constant-condition
 	while (true) {
-		const charResult = charParser(nextInput)
+		const charResult = parser(nextInput)
 
 		if (charResult == null) {
 			return { kind: 'success', parsed: res, input: nextInput, src: { code: input.code, start: input.index, end: nextInput.index } }
@@ -326,7 +345,7 @@ export const take0 = <TError>(charParser: Parser<string, TError>): Parser<string
 /**
  * Parse 1 or more characters, where `chParser` is a 1-character parser, returned as a single string
  */
-export const take1 = <TError>(chParser: Parser<string, TError>): Parser<string, TError> => filter(take0(chParser), s => s.length > 0)
+export const take1 = <TError>(parser: Parser<string, TError>): Parser<string, TError> => filter(take0(parser), s => s.length > 0)
 
 /**
  * Given a series of precedence levels (parsers), parse them in order starting
@@ -336,14 +355,41 @@ export const take1 = <TError>(chParser: Parser<string, TError>): Parser<string, 
  */
 export const precedence = <TParsers extends Parser<unknown, unknown>[]>(
 	...levels: TParsers
-): Precedence<TParsers[number]> => startingAfter =>
+): Precedence<TParsers[number]> => {
+	const startingAfterLookup = new Map<TParsers[number], TParsers[number][]>()
+	for (let i = 0; i < levels.length; i++) {
+		startingAfterLookup.set(levels[i]!, levels.slice(i + 1))
+	}
+
+	return startingAfter =>
 		startingAfter == null
 			? oneOf(...levels)
-			: oneOf(...levels.slice(levels.indexOf(startingAfter) + 1))
+			: oneOf(...startingAfterLookup.get(startingAfter)!)
+}
 
 export type Precedence<T> = (startingAfter?: T) => T
+
+export const drop = (parser: Parser<unknown>) => map(parser, () => undefined)
 
 /**
  * Any amount of whitespace (or none)
  */
-export const whitespace: Parser<undefined> = map(take0(whitespaceChar), () => undefined)
+export const whitespace: Parser<undefined> = drop(take0(whitespaceChar))
+
+export const backtrack = <TParsed, TBroken, TError>(inner: Parser<TParsed, TError>, rest: Parser<unknown, TError>, broken: (error: TError, src: ParseSource) => TBroken): Parser<TParsed | TBroken, TError> => input => {
+	const result = inner(input)
+
+	if (result?.kind === 'error') {
+		return map(rest, (_, src): TBroken => broken(result.error, { code: input.code, start: input.index, end: src.end }))(result.input)
+	} else {
+		return result
+	}
+}
+
+export const takeUntil = (terminator: string) => map(
+	tuple(
+		take0(filter(char, (_, { code, index }) => !code.substring(index).startsWith(terminator))),
+		exact(terminator)
+	),
+	([content, terminator]) => content + terminator
+)

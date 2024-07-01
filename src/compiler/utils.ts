@@ -23,3 +23,13 @@ export function zip<A, B>(arr1: A[], arr2: B[], mode: 'truncate' | 'left' | 'rig
 
 	return res
 }
+
+// eslint-disable-next-line @typescript-eslint/ban-types
+export const instrument = <F extends Function>(name: string, fn: F): F => {
+	return ((...args: any[]) => {
+		const start = Date.now()
+		const result = fn(...args)
+		console.log(`${name} took ${Date.now() - start}ms`)
+		return result
+	}) as unknown as F
+}

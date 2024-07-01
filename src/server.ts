@@ -174,41 +174,51 @@ async function validateTextDocument(textDocument: TextDocument): Promise<Diagnos
 	// The validator creates diagnostics for all uppercase words length 2 and more
 	const text = textDocument.getText()
 
-	const start = Date.now()
 	const parsed = parseModule({ code: text, index: 0 })
 	const parseEnd = Date.now()
-	console.log('ms to parse:', parseEnd - start)
 
 	if (parsed?.kind === 'success') {
 		const diagnostics: Diagnostic[] = []
-		check(
-			{
-				error: e => diagnostics.push({
+
+		try {
+			check(
+				{
+					error: e => diagnostics.push({
+						severity: DiagnosticSeverity.Error,
+						range: {
+							start: textDocument.positionAt(e.src.start),
+							end: textDocument.positionAt(e.src.end)
+						},
+						message: e.message,
+						relatedInformation: e.details?.map(({ message, src }) => ({
+							message,
+							location: {
+								uri: textDocument.uri,
+								range: {
+									start: textDocument.positionAt(src.start),
+									end: textDocument.positionAt(src.end)
+								}
+							},
+						}))
+					})
+				},
+				parsed.parsed
+			)
+
+			return diagnostics
+		} catch (e) {
+			console.error(e)
+			return [
+				{
 					severity: DiagnosticSeverity.Error,
 					range: {
-						start: textDocument.positionAt(e.src.start),
-						end: textDocument.positionAt(e.src.end)
+						start: textDocument.positionAt(0),
+						end: textDocument.positionAt(text.length)
 					},
-					message: e.message,
-					relatedInformation: e.details?.map(({ message, src }) => ({
-						message,
-						location: {
-							uri: textDocument.uri,
-							range: {
-								start: textDocument.positionAt(src.start),
-								end: textDocument.positionAt(src.end)
-							}
-						},
-					}))
-				})
-			},
-			parsed.parsed
-		)
-
-		const checkEnd = Date.now()
-		console.log('ms to check:', checkEnd - parseEnd)
-
-		return diagnostics
+					message: 'Error thrown while checking module:\n' + (e as Error).message + '\n' + (e as Error).stack
+				}
+			]
+		}
 	} else {
 		return [
 			{
@@ -217,7 +227,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<Diagnos
 					start: textDocument.positionAt(0),
 					end: textDocument.positionAt(text.length)
 				},
-				message: 'Failed to parse document'
+				message: 'Failed to parse module: ' + parsed?.error
 			}
 		]
 	}
@@ -251,9 +261,8 @@ connection.onCompletion(
 			const result = parseModule({ code: document.getText(), index: 0 })
 
 			if (result?.kind === 'success') {
-				const start = Date.now()
 				const completions = getCompletions(result.parsed, document.offsetAt(params.position))
-				console.log('ms to get completions:', Date.now() - start)
+
 				return completions.map((c, i) => ({
 					label: c.text,
 					kind: CompletionItemKind.Text,
@@ -287,20 +296,23 @@ connection.onHover(async (params) => {
 		const result = parseModule({ code: document.getText(), index: 0 })
 
 		if (result?.kind === 'success') {
-			const start = Date.now()
-			const selection = findASTNodeAtPosition(document.offsetAt(params.position), result.parsed)
 
-			if (selection?.kind === 'local-identifier') {
-				const type = inferType(selection)
-				console.log('ms to infer type:', Date.now() - start)
+			try {
+				const selection = findASTNodeAtPosition(document.offsetAt(params.position), result.parsed)
 
-				return {
-					contents: {
-						kind: 'plaintext',
-						language: 'bagel',
-						value: displayType(type)
+				if (selection?.kind === 'local-identifier') {
+					const type = inferType(selection)
+
+					return {
+						contents: {
+							kind: 'plaintext',
+							language: 'bagel',
+							value: displayType(type)
+						}
 					}
 				}
+			} catch (e) {
+				console.error(e)
 			}
 		}
 	}

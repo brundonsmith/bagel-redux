@@ -1,14 +1,10 @@
 {
-	"name": "lsp-sample",
-	"description": "A language server example",
+	"name": "Bagel",
+	"description": "Syntax highlighting and language server for the Bagel language",
 	"author": "Microsoft Corporation",
 	"license": "MIT",
 	"version": "1.0.0",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/Microsoft/vscode-extension-samples"
-	},
-	"publisher": "vscode-samples",
+	"publisher": "Brandon Smith",
 	"categories": [],
 	"keywords": [
 		"multi-root ready"
@@ -16,10 +12,7 @@
 	"engines": {
 		"vscode": "^1.75.0"
 	},
-	"activationEvents": [
-		"onLanguage:bagel"
-	],
-	"main": "./client/out/extension",
+	"main": "./out/extension",
 	"contributes": {
 		"configuration": {
 			"type": "object",
@@ -69,17 +62,24 @@
 		"vscode:prepublish": "npm run compile",
 		"compile": "tsc -b",
 		"watch": "tsc -b -w",
-		"lint": "eslint ./client/src ./server/src --ext .ts,.tsx",
-		"postinstall": "cd client && npm install && cd ../server && npm install && cd ..",
+		"lint": "eslint ./src --ext .ts,.tsx",
 		"test": "npm run compile && ava",
-		"bgl-transpile": "npm run compile && node server/out/compiler/compiler.js transpile",
-		"bgl-bundle": "npm run compile && node server/out/compiler/compiler.js bundle"
+		"bgl-transpile": "npm run compile && node out/compiler/cli.js transpile",
+		"bgl-bundle": "npm run compile && node out/compiler/cli.js bundle"
+	},
+	"dependencies": {
+		"@nodelib/fs.walk": "^2.0.0",
+		"vscode-languageclient": "^9.0.1",
+		"vscode-languageserver": "^9.0.1",
+		"vscode-languageserver-textdocument": "^1.0.11"
 	},
 	"devDependencies": {
 		"@types/mocha": "^10.0.6",
 		"@types/node": "^18.14.6",
+		"@types/vscode": "^1.75.1",
 		"@typescript-eslint/eslint-plugin": "^7.1.0",
 		"@typescript-eslint/parser": "^7.1.0",
+		"@vscode/test-electron": "^2.3.9",
 		"ava": "^6.1.3",
 		"eslint": "^8.57.0",
 		"typescript": "^5.3.3"

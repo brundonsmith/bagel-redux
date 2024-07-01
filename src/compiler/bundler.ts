@@ -1,4 +1,4 @@
-import { Module } from './compiler'
+import { Module } from './cli'
 import { transpile } from './transpiler'
 
 export type BundlerOptions = {

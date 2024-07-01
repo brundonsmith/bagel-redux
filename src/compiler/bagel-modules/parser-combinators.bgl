@@ -1,0 +1,37 @@
+
+/**
+ * The input to a given parse function
+ */
+export type ParseInput = {
+
+	/**
+	 * Entire original code string
+	 */
+	code: string,
+	
+	/**
+	 * Current index within the code string
+	 */
+	index: number
+}
+
+export type ParseSource = {
+	code: string,
+	start: number,
+	end: number
+}
+
+export const char = (input: ParseInput) =>
+	if input.index >= 0 && input.index < input.code.length {
+		{
+			kind: 'success',
+			parsed: input.code[input.index],
+			input: { ...input, index: input.index + 1 },
+			src: {
+				code: input.code,
+				
+				start: input.index,
+				end: input.index + 1
+			}
+		}
+	}

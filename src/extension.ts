@@ -4,7 +4,7 @@
  * ------------------------------------------------------------------------------------------ */
 
 import * as path from 'path'
-import { workspace, ExtensionContext } from 'vscode'
+import { workspace, ExtensionContext, languages, TextEdit, TextDocument, Position, Range } from 'vscode'
 
 import {
 	LanguageClient,
@@ -12,13 +12,16 @@ import {
 	ServerOptions,
 	TransportKind
 } from 'vscode-languageclient/node'
+import { parseModule } from './compiler/parser'
+import { input } from './compiler/parser-combinators'
+import { format } from './compiler/formatter'
 
 let client: LanguageClient
 
 export function activate(context: ExtensionContext) {
 	// The server is implemented in node
 	const serverModule = context.asAbsolutePath(
-		path.join('server', 'out', 'server.js')
+		path.join('out', 'server.js')
 	)
 
 	// If the extension is launched in debug mode then the debug server options are used
@@ -43,11 +46,25 @@ export function activate(context: ExtensionContext) {
 
 	// Create the language client and start the client.
 	client = new LanguageClient(
-		'languageServerExample',
-		'Language Server Example',
+		'bagel',
+		'Bagel',
 		serverOptions,
 		clientOptions
 	)
+
+	languages.registerDocumentFormattingEditProvider('bagel', {
+		provideDocumentFormattingEdits(document: TextDocument): TextEdit[] {
+			const source = document.getText()
+			const parsed = parseModule(input(source))
+
+			if (parsed?.kind === 'success') {
+				const formatted = format({ indentation: 0 }, parsed.parsed)
+				return [TextEdit.replace(new Range(document.positionAt(0), document.positionAt(source.length)), formatted)]
+			}
+
+			return []
+		}
+	})
 
 	// Start the client. This will also launch the server
 	client.start()

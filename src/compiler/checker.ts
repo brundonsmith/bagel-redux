@@ -1,7 +1,7 @@
 import { AST, Expression, TypeExpression } from './parser'
 import { ParseSource } from './parser-combinators'
-import { Type, displayType, inferType, opSignatures, resolveDeclaration, resolveType, subsumationIssues, subsumes } from './types'
-import { zip } from './utils'
+import { displayType, inferType, resolveValueDeclaration, resolveType, subsumationIssues, subsumes, resolveTypeDeclaration } from './types'
+import { instrument } from './utils'
 
 export type CheckerError = { message: string, src: ParseSource, details?: { message: string, src: ParseSource }[] }
 
@@ -9,11 +9,12 @@ export type CheckContext = {
 	error: (err: CheckerError) => void
 }
 
-export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => {
+export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): void => {
+	const ch = (ast: AST[] | AST | undefined) => checkInner(ctx, ast)
 
 	if (Array.isArray(ast)) {
 		for (const child of ast) {
-			check(ctx, child)
+			ch(child)
 		}
 	} else if (ast != null) {
 		const { error } = ctx
@@ -34,35 +35,47 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 
 		switch (ast.kind) {
 			case 'module': {
-				check(ctx, ast.declarations)
+				ch(ast.declarations)
+			} break
+			case 'import-declaration': {
+				ch(ast.uri)
+				ch(ast.imports)
+			} break
+			case 'import-item': {
+				ch(ast.name)
+				ch(ast.alias)
+			} break
+			case 'type-declaration': {
+				ch(ast.name)
+				ch(ast.type)
 			} break
 			case 'const-declaration': {
 				checkAssignment(ast.declared.type, ast.value)
-				check(ctx, ast.declared)
-				check(ctx, ast.value)
+				ch(ast.declared)
+				ch(ast.value)
 			} break
 			case 'typeof-type-expression': {
-				check(ctx, ast.expression)
+				ch(ast.expression)
 			} break
 			case 'function-type-expression': {
-				check(ctx, ast.params)
-				check(ctx, ast.returns)
+				ch(ast.params)
+				ch(ast.returns)
 			} break
 			case 'union-type-expression': {
-				check(ctx, ast.members)
+				ch(ast.members)
 			} break
 			case 'property-access-expression': {
 				const subjectType = inferType(ast.subject)
 				const propertyType = inferType(ast.property)
-				if (!subsumes({ to: { kind: 'keys-type', subject: subjectType }, from: propertyType })) {
+				if (subjectType.kind !== 'poisoned-type' && !subsumes({ to: { kind: 'keys-type', subject: subjectType }, from: propertyType })) {
 					error({
 						message: `Can't index type ${displayType(subjectType)} with property ${displayType(propertyType)}`,
 						src: ast.property.src
 					})
 				}
 
-				check(ctx, ast.subject)
-				check(ctx, ast.property)
+				ch(ast.subject)
+				ch(ast.property)
 			} break
 			case 'as-expression': {
 				const expressionType = inferType(ast.expression)
@@ -76,8 +89,8 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 					})
 				}
 
-				check(ctx, ast.expression)
-				check(ctx, ast.type)
+				ch(ast.expression)
+				ch(ast.type)
 			} break
 			case 'function-expression': {
 				// TODO: Lots of stuff
@@ -95,13 +108,13 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 					}
 				}
 
-				check(ctx, ast.params)
-				check(ctx, ast.returnType)
-				check(ctx, ast.body)
+				ch(ast.params)
+				ch(ast.returnType)
+				ch(ast.body)
 			} break
 			case 'name-and-type': {
-				check(ctx, ast.name)
-				check(ctx, ast.type)
+				ch(ast.name)
+				ch(ast.type)
 			} break
 			case 'invocation': {
 				const subjectType = inferType(ast.subject)
@@ -125,40 +138,39 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 					}
 				}
 
-				check(ctx, ast.subject)
-				check(ctx, ast.args)
+				ch(ast.subject)
+				ch(ast.args)
 			} break
 			case 'binary-operation-expression': {
-				const leftType = inferType(ast.left)
-				const rightType = inferType(ast.right)
-				if (!opSignatures[ast.op].some(({ requiredLeft, requiredRight }) =>
-					subsumes({ to: requiredLeft, from: leftType }) && subsumes({ to: requiredRight, from: rightType }))
-				) {
+				const resultType = inferType(ast)
+				if (resultType.kind === 'poisoned-type') {
+					const leftType = inferType(ast.left)
+					const rightType = inferType(ast.right)
 					error({
 						message: `Can't apply operator ${ast.op} to operands ${displayType(leftType)} and ${displayType(rightType)}`,
 						src: ast.src
 					})
 				}
 
-				check(ctx, ast.left)
-				check(ctx, ast.right)
+				ch(ast.left)
+				ch(ast.right)
 			} break
 			case 'if-else-expression': {
-				check(ctx, ast.cases)
-				check(ctx, ast.defaultCase)
+				ch(ast.cases)
+				ch(ast.defaultCase)
 			} break
 			case 'object-literal': {
-				check(ctx, ast.entries)
+				ch(ast.entries)
 			} break
 			case 'key-value': {
-				check(ctx, ast.key)
-				check(ctx, ast.value)
+				ch(ast.key)
+				ch(ast.value)
 			} break
 			case 'array-literal': {
-				check(ctx, ast.elements)
+				ch(ast.elements)
 			} break
 			case 'spread': {
-				check(ctx, ast.spread)
+				ch(ast.spread)
 			} break
 			case 'range': {
 				if (ast.start != null && ast.end != null && ast.start > ast.end) {
@@ -168,20 +180,42 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 					})
 				}
 
-				check(ctx, ast.start)
-				check(ctx, ast.end)
+				ch(ast.start)
+				ch(ast.end)
 			} break
 			case 'if-else-expression-case': {
-				check(ctx, ast.condition)
-				check(ctx, ast.outcome)
+				ch(ast.condition)
+				ch(ast.outcome)
 			} break
 			case 'local-identifier': {
-				if (!resolveDeclaration(ast.identifier, ast)) {
-					error({
-						message: `Couldn't resolve identifier ${ast.identifier}`,
-						src: ast.src
-					})
+				switch (ast.context) {
+					case 'expression':
+						if (!resolveValueDeclaration(ast.identifier, ast)) {
+							error({
+								message: `Couldn't find ${ast.identifier}`,
+								src: ast.src
+							})
+						}
+						break
+					case 'type-expression':
+						if (!resolveTypeDeclaration(ast.identifier, ast)) {
+							error({
+								message: `Couldn't find ${ast.identifier}`,
+								src: ast.src
+							})
+						}
+						break
 				}
+
+			} break
+			case 'parenthesis': {
+				ch(ast.inner)
+			} break
+			case 'broken-subtree': {
+				error({
+					message: ast.error,
+					src: ast.src
+				})
 			} break
 			case 'string-type-expression':
 			case 'number-type-expression':
@@ -192,6 +226,7 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 			case 'boolean-literal':
 			case 'nil-literal':
 			case 'plain-identifier':
+			case 'comment':
 				break // nothing to check
 			default:
 				// @ts-expect-error kind should be of type `never`
@@ -199,3 +234,5 @@ export const check = (ctx: CheckContext, ast: AST[] | AST | undefined): void => 
 		}
 	}
 }
+
+export const check = instrument('check', checkInner)
