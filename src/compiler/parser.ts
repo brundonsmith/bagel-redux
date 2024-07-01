@@ -503,7 +503,7 @@ const unknownTypeExpression: BagelParser<UnknownTypeExpression> = map(
 	})
 )
 
-const typeExpression: Precedence<BagelParser<TypeExpression>> = startingAfter => ___memo(input => precedenceWithContext(
+const typeExpression: Precedence<BagelParser<TypeExpression>> = ___memo(startingAfter => ___memo(input => precedenceWithContext(
 	'type-expression',
 	typeofTypeExpression,
 	functionTypeExpression,
@@ -522,7 +522,7 @@ const typeExpression: Precedence<BagelParser<TypeExpression>> = startingAfter =>
 	nilLiteral,
 	localIdentifier,
 	// @ts-expect-error sdfkjgh
-)(startingAfter)(input))
+)(startingAfter)(input)))
 
 const propertyAccessExpression: BagelParser<PropertyAccessExpression> = input => map(
 	tuple(
@@ -739,7 +739,7 @@ const plainIdentifier: BagelParser<PlainIdentifier> = map(
 	} as const)
 )
 
-export const expression: Precedence<BagelParser<Expression>> = startingAfter => ___memo(input => precedenceWithContext(
+export const expression: Precedence<BagelParser<Expression>> = ___memo(startingAfter => ___memo(input => precedenceWithContext(
 	'expression',
 	asExpression,
 	invocation,
@@ -762,7 +762,7 @@ export const expression: Precedence<BagelParser<Expression>> = startingAfter => 
 	nilLiteral,
 	localIdentifier,
 	// @ts-expect-error sdfjhg
-)(startingAfter)(input))
+)(startingAfter)(input)))
 
 const linesComment = map(
 	manySep1(
@@ -843,21 +843,13 @@ const preceded = <TParsed extends ASTInfo>(parser: BagelParser<TParsed>): BagelP
 const precedenceWithContext = <TParsers extends Parser<ASTInfo, unknown>[]>(
 	context: ASTInfo['context'],
 	...levels: TParsers
-): Precedence<TParsers[number]> => {
-	const startingAfterLookup = new Map<TParsers[number], TParsers[number]>()
-	for (let i = 0; i < levels.length; i++) {
-		startingAfterLookup.set(levels[i]!,
-			map(
-				oneOf(...levels.slice(i + 1)),
-				parsed => ({ ...parsed, context })
-			))
-	}
-
-	return startingAfter =>
-		startingAfter == null
-			? oneOf(...levels)
-			: startingAfterLookup.get(startingAfter)!
-}
+): Precedence<TParsers[number]> => startingAfter =>
+		map(
+			startingAfter == null
+				? oneOf(...levels)
+				: oneOf(...levels.slice(levels.indexOf(startingAfter) + 1)),
+			parsed => ({ ...parsed, context })
+		)
 
 const parentChildren = (ast: AST) => {
 	for (const key in ast as any) {
