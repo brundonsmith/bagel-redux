@@ -221,18 +221,18 @@ export function ___autorun(reaction: ___Reaction) {
 }
 
 export function ___memo<F extends ___Computation>(fn: F): F {
-	return ((...args) => {
+	function dispose() {
+		for (const entry of ___computationsToObservables.get([fn])) {
+			const obj = entry[entry.length - 2]
+			const prop = entry[entry.length - 1]
 
-		function dispose() {
-			for (const entry of ___computationsToObservables.get([fn])) {
-				const obj = entry[entry.length - 2]
-				const prop = entry[entry.length - 1]
-
-				___observablesToComputations.delete([obj, prop, fn])
-			}
-			___computationsToCaches.delete([fn])
-			___computationsToObservables.delete([fn])
+			___observablesToComputations.delete([obj, prop, fn])
 		}
+		___computationsToCaches.delete([fn])
+		___computationsToObservables.delete([fn])
+	}
+
+	return ((...args) => {
 
 		// @ts-expect-error dfkjh
 		if (!___computationsToCaches.has([fn, ...args])) {

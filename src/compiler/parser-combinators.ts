@@ -347,26 +347,6 @@ export const take0 = <TError>(parser: Parser<string, TError>): Parser<string, TE
  */
 export const take1 = <TError>(parser: Parser<string, TError>): Parser<string, TError> => filter(take0(parser), s => s.length > 0)
 
-/**
- * Given a series of precedence levels (parsers), parse them in order starting
- * at whichever one is passed back in as `startingFrom`. Useful for parsing
- * expressions with multiple precedence levels, where each level wants to parse
- * nested expressions only from levels beneath itself.
- */
-export const precedence = <TParsers extends Parser<unknown, unknown>[]>(
-	...levels: TParsers
-): Precedence<TParsers[number]> => {
-	const startingAfterLookup = new Map<TParsers[number], TParsers[number][]>()
-	for (let i = 0; i < levels.length; i++) {
-		startingAfterLookup.set(levels[i]!, levels.slice(i + 1))
-	}
-
-	return startingAfter =>
-		startingAfter == null
-			? oneOf(...levels)
-			: oneOf(...startingAfterLookup.get(startingAfter)!)
-}
-
 export type Precedence<T> = (startingAfter?: T) => T
 
 export const drop = (parser: Parser<unknown>) => map(parser, () => undefined)
