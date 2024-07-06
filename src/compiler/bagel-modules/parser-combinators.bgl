@@ -29,7 +29,6 @@ export const char = (input: ParseInput) =>
 			input: { ...input, index: input.index + 1 },
 			src: {
 				code: input.code,
-				
 				start: input.index,
 				end: input.index + 1
 			}

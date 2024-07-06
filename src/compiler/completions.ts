@@ -1,8 +1,8 @@
-import { AST, ModuleAST, findASTNodeAtPosition } from './parser'
+import { ModuleAST, findASTNodeAtPosition } from './parser'
 import { valueDeclarationsInScope } from './types'
-import { instrument } from './utils'
+import { profile } from './utils'
 
-export const getCompletions = instrument('getCompletions', (module: ModuleAST, position: number): { text: string }[] => {
+export const getCompletions = profile('getCompletions', (module: ModuleAST, position: number): { text: string }[] => {
 	const selected = findASTNodeAtPosition(position, module)
 	return valueDeclarationsInScope(selected).map(decl => {
 		switch (decl.kind) {

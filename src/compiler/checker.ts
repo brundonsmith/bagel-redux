@@ -1,7 +1,7 @@
 import { AST, Expression, TypeExpression } from './parser'
 import { ParseSource } from './parser-combinators'
-import { displayType, inferType, resolveValueDeclaration, resolveType, subsumationIssues, subsumes, resolveTypeDeclaration } from './types'
-import { instrument } from './utils'
+import { displayType, inferType, resolveValueDeclaration, resolveType, subsumationIssues, subsumes, resolveTypeDeclaration, simplifyType } from './types'
+import { profile } from './utils'
 
 export type CheckerError = { message: string, src: ParseSource, details?: { message: string, src: ParseSource }[] }
 
@@ -142,7 +142,7 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 				ch(ast.args)
 			} break
 			case 'binary-operation-expression': {
-				const resultType = inferType(ast)
+				const resultType = simplifyType(inferType(ast))
 				if (resultType.kind === 'poisoned-type') {
 					const leftType = inferType(ast.left)
 					const rightType = inferType(ast.right)
@@ -235,4 +235,4 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 	}
 }
 
-export const check = instrument('check', checkInner)
+export const check = profile('check', checkInner)

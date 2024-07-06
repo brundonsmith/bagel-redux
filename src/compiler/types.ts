@@ -1,5 +1,5 @@
 import { AST, BinaryOperator, ConstDeclaration, Expression, ImportDeclaration, ImportItem, NameAndType, TypeDeclaration, TypeExpression } from './parser'
-import { todo, zip, instrument } from './utils'
+import { todo, zip, profile } from './utils'
 
 export type Type =
 	| Readonly<{ kind: 'function-type', params: Array<Type | SpreadType>, returns: Type, pure: boolean }>
@@ -55,7 +55,7 @@ export const poisoned = { kind: 'poisoned-type' } as const
 export type KeyValueType = { kind: 'key-value-type', key: Type, value: Type }
 export type SpreadType = { kind: 'spread', spread: Type }
 
-export const inferType = instrument('inferType', (expression: Expression): Type => {
+export const inferType = profile('inferType', (expression: Expression): Type => {
 	switch (expression.kind) {
 		case 'property-access-expression': return {
 			kind: 'property-type',

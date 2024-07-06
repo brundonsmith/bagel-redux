@@ -175,7 +175,6 @@ async function validateTextDocument(textDocument: TextDocument): Promise<Diagnos
 	const text = textDocument.getText()
 
 	const parsed = parseModule({ code: text, index: 0 })
-	const parseEnd = Date.now()
 
 	if (parsed?.kind === 'success') {
 		const diagnostics: Diagnostic[] = []

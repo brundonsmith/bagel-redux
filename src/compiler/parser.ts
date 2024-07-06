@@ -1,6 +1,6 @@
-import { ParseSource, Parser, Precedence, alphaChar, backtrack, char, exact, filter, input, many0, many1, manySep0, manySep1, manySep2, map, numericChar, oneOf, optional, required, subParser, take0, take1, takeUntil, tuple, whitespace } from './parser-combinators'
+import { ParseSource, Parser, Precedence, alphaChar, backtrack, char, exact, filter, input, many0, many1, manySep0, manySep1, manySep2, map, memo, numericChar, oneOf, optional, required, subParser, take0, take1, takeUntil, tuple, whitespace } from './parser-combinators'
 import { ___memo } from './reactivity'
-import { instrument } from './utils'
+import { profile } from './utils'
 
 export type ASTInfo = Readonly<{ src: ParseSource, parent?: AST, precedingComments?: Comment[], context?: 'expression' | 'type-expression' }>
 
@@ -119,31 +119,30 @@ const precedenceWithContext = <TParsers extends Parser<ASTInfo, unknown>[]>(
 	context: ASTInfo['context'],
 	...levels: TParsers
 ): Precedence<TParsers[number]> => {
-	// @ts-expect-error dsfgh
-	const all = ___memo(map(
-		oneOf(...levels),
+	const memoLevels = levels.map(memo)
+
+	const all = profile(context + '(0)', memo(map(
+		oneOf(...memoLevels),
 		parsed => ({ ...parsed, context })
-	))
+	)))
 	const byLevel = new Map<TParsers[number], TParsers[number]>()
 	for (let i = 0; i < levels.length; i++) {
 		byLevel.set(
 			levels[i]!,
-			// @ts-expect-error dsfgh
-			___memo(map(
-				oneOf(...levels.slice(i + 1)),
+			profile(context + `(${i})`, map(
+				oneOf(...memoLevels.slice(i + 1)),
 				parsed => ({ ...parsed, context })
 			))
 		)
 	}
 
 	return startingAfter =>
-		// @ts-expect-error dsfgh
 		startingAfter
-			? byLevel.get(startingAfter)
+			? byLevel.get(startingAfter)!
 			: all
 }
 
-const linesComment = map(
+const linesComment = profile('linesComment', map(
 	manySep1(
 		map(
 			tuple(
@@ -160,9 +159,9 @@ const linesComment = map(
 		comment: lines.join('\n'),
 		src
 	})
-)
+))
 
-const blockComment = map(
+const blockComment = profile('blockComment', map(
 	tuple(
 		exact('/*'),
 		subParser(
@@ -193,7 +192,7 @@ const blockComment = map(
 		comment: lines.join('\n'),
 		src
 	})
-)
+))
 
 const whitespaceAndComments: BagelParser<Comment[]> = map(
 	tuple(
@@ -218,16 +217,16 @@ const preceded = <TParsed extends ASTInfo>(parser: BagelParser<TParsed>): BagelP
 	})
 )
 
-const expect = (str: string) => required(exact(str), () => `Expected "${str}"`)
+const expect = (str: string) => profile(`expect(${str})`, required(exact(str), () => `Expected "${str}"`))
 
 const identifierRegex = /[a-zA-Z0-9_]/
-const identifier: BagelParser<string> = map(
+const identifier: BagelParser<string> = profile('identifier', map(
 	tuple(
 		alphaChar,
 		take0(filter(char, ch => identifierRegex.test(ch)))
 	),
 	(_, src) => src.code.substring(src.start, src.end)
-)
+))
 
 export const isValidIdentifier = (str: string) => identifier(input(str))?.input.index === str.length
 
@@ -240,14 +239,14 @@ const localIdentifier: BagelParser<LocalIdentifier> = map(
 	} as const)
 )
 
-const plainIdentifier: BagelParser<PlainIdentifier> = map(
+const plainIdentifier: BagelParser<PlainIdentifier> = profile('plainIdentifier', map(
 	identifier,
 	(parsed, src) => ({
 		kind: 'plain-identifier',
 		identifier: parsed,
 		src
 	} as const)
-)
+))
 
 const string = backtrack(
 	map(
@@ -268,12 +267,12 @@ const boolean = oneOf(
 )
 const nil = exact('nil')
 
-const optionalKeyword = (keyword: string) => map(
+const optionalKeyword = (keyword: string) => profile('optionalKeyword', map(
 	optional(tuple(exact(keyword), whitespace)),
 	keyword => keyword != null
-)
+))
 
-export const parseModule: BagelParser<ModuleAST> = instrument('parseModule', input => {
+export const parseModule: BagelParser<ModuleAST> = profile('parseModule', input => {
 	const parsed = map(
 		tuple(
 			whitespace,
@@ -341,7 +340,7 @@ const stringLiteral: BagelParser<StringLiteral | BrokenSubtree> = map(
 			: value
 )
 
-const importDeclaration: BagelParser<ImportDeclaration | BrokenSubtree> = map(
+const importDeclaration: BagelParser<ImportDeclaration | BrokenSubtree> = profile('importDeclaration', map(
 	tuple(
 		exact('from'),
 		preceded(stringLiteral),
@@ -359,9 +358,9 @@ const importDeclaration: BagelParser<ImportDeclaration | BrokenSubtree> = map(
 				src
 			}
 			: uri
-)
+))
 
-const typeDeclaration: BagelParser<TypeDeclaration> = input => map(
+const typeDeclaration: BagelParser<TypeDeclaration> = profile('typeDeclaration', input => map(
 	tuple(
 		optionalKeyword('export '),
 		exact('type '),
@@ -379,9 +378,9 @@ const typeDeclaration: BagelParser<TypeDeclaration> = input => map(
 		type,
 		src
 	})
-)(input)
+)(input))
 
-const constDeclaration: BagelParser<ConstDeclaration> = input => map(
+const constDeclaration: BagelParser<ConstDeclaration> = profile('constDeclaration', input => map(
 	tuple(
 		optionalKeyword('export '),
 		exact('const '),
@@ -399,15 +398,15 @@ const constDeclaration: BagelParser<ConstDeclaration> = input => map(
 		value,
 		src
 	} as const)
-)(input)
+)(input))
 
-const declaration: BagelParser<Declaration> = oneOf(
+const declaration: BagelParser<Declaration> = profile('declaration', oneOf(
 	importDeclaration,
 	typeDeclaration,
 	constDeclaration
-)
+))
 
-const nameAndType: BagelParser<NameAndType> = input => map(
+const nameAndType: BagelParser<NameAndType> = profile('nameAndType', input => map(
 	tuple(
 		plainIdentifier,
 		whitespace,
@@ -428,7 +427,7 @@ const nameAndType: BagelParser<NameAndType> = input => map(
 		type,
 		src
 	} as const)
-)(input)
+)(input))
 
 const typeofTypeExpression: BagelParser<TypeofTypeExpression> = input => map(
 	tuple(
@@ -902,7 +901,7 @@ const parentChildren = (ast: AST) => {
 	}
 }
 
-export const findASTNodeAtPosition = (position: number, ast: AST): AST | undefined => {
+export const findASTNodeAtPosition = profile('findASTNodeAtPosition', (position: number, ast: AST): AST | undefined => {
 	if (position < ast.src.start || position >= ast.src.end) {
 		return undefined
 	}
@@ -953,6 +952,6 @@ export const findASTNodeAtPosition = (position: number, ast: AST): AST | undefin
 
 	childrenArray.push(ast)
 	return childrenArray.filter(exists)[0]
-}
+})
 
 const exists = <T>(x: T | null | undefined): x is T => x != null

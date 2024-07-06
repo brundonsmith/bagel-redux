@@ -1,5 +1,5 @@
 import { AST } from './parser'
-import { instrument, todo } from './utils'
+import { profile, todo } from './utils'
 
 export type TranspileContext = {
 	outputTypes: boolean,
@@ -59,4 +59,4 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 
 const NIL = 'undefined'
 
-export const transpile = instrument('transpile', transpileInner)
+export const transpile = profile('transpile', transpileInner)

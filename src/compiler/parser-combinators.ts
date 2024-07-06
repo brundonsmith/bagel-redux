@@ -1,3 +1,4 @@
+import { profile } from './utils'
 
 /**
  * The input to a given parse function
@@ -87,6 +88,22 @@ export type ErrorsOf<TParsers extends Parser<unknown, unknown>[]> = {
 	[Index in keyof TParsers]: TParsers[Index] extends Parser<unknown, infer TError> ? TError : never;
 }
 
+export const memo = <TArg, TReturn>(fn: (arg: TArg) => TReturn): (arg: TArg) => TReturn => {
+	const outputs = new Map<TArg, TReturn>()
+
+	return (arg: TArg): TReturn => {
+		const cached = outputs.get(arg)
+
+		if (cached) {
+			return cached
+		} else {
+			const res = fn(arg)
+			outputs.set(arg, res)
+			return res
+		}
+	}
+}
+
 /**
  * Create an initial `ParseInput` from just a code string
  */
@@ -100,14 +117,14 @@ export const nothing: Parser<undefined, never> = input => ({ kind: 'success', pa
 /**
  * Parse an exact string
  */
-export const exact = <T extends string>(str: T): Parser<T, never> => input => {
+export const exact = <T extends string>(str: T): Parser<T, never> => profile('exact', input => {
 	if (input.code.substring(input.index).startsWith(str)) {
 		const end = input.index + str.length
 		return { kind: 'success', parsed: str, input: { ...input, index: end }, src: { code: input.code, start: input.index, end } }
 	} else {
 		return undefined
 	}
-}
+})
 
 /**
  * If parsed value doesn't match `pred`, convert it to a none-result
@@ -167,7 +184,7 @@ export const subParser = <TParsed, TError>(
 export const required = <TParsed, TError1, TError2>(
 	parser: Parser<TParsed, TError1>,
 	error: (input: ParseInput) => TError2
-): Parser<TParsed, TError1 | TError2> => input => {
+): Parser<TParsed, TError1 | TError2> => profile('required(_)', input => {
 	const res = parser(input)
 
 	if (res == null) {
@@ -175,7 +192,7 @@ export const required = <TParsed, TError1, TError2>(
 	} else {
 		return res
 	}
-}
+})
 
 // --- Characters ---
 
@@ -261,12 +278,7 @@ export const tuple = <
 	return { kind: 'success', parsed: items as ParsedOf<TParsers>, input: nextInput, src: { code: input.code, start: input.index, end: nextInput.index } }
 }
 
-/**
- * Parse 0 or more instances of `item`, separated by `sep` (if provided)
- * - Only `item`s are actually returned, not `sep`s
- * - Succeeds even if nothing is found
- */
-export const manySep0 = <TParsed, TError1, TError2>(item: Parser<TParsed, TError1>, sep: Parser<unknown, TError2> | undefined): Parser<TParsed[], TError1 | TError2> => input => {
+const manySep = (n: number) => <TParsed, TError1, TError2>(item: Parser<TParsed, TError1>, sep: Parser<unknown, TError2> | undefined): Parser<TParsed[], TError1 | TError2> => input => {
 	let nextInputBeforeSep = input
 	let nextInput = input
 	const items: TParsed[] = []
@@ -291,7 +303,11 @@ export const manySep0 = <TParsed, TError1, TError2>(item: Parser<TParsed, TError
 		const itemResult = item(nextInput)
 
 		if (itemResult == null) {
-			return { kind: 'success', parsed: items, input: nextInputBeforeSep, src: { code: input.code, start: input.index, end: nextInputBeforeSep.index } }
+			if (items.length < n) {
+				return undefined
+			} else {
+				return { kind: 'success', parsed: items, input: nextInputBeforeSep, src: { code: input.code, start: input.index, end: nextInputBeforeSep.index } }
+			}
 		} else if (itemResult.kind === 'error') {
 			return itemResult
 		} else {
@@ -302,13 +318,20 @@ export const manySep0 = <TParsed, TError1, TError2>(item: Parser<TParsed, TError
 }
 
 /**
+ * Parse 0 or more instances of `item`, separated by `sep` (if provided)
+ * - Only `item`s are actually returned, not `sep`s
+ * - Succeeds even if nothing is found
+ */
+export const manySep0 = manySep(0)
+
+/**
  * Parse 1 or more instances of `item`, separated by `sep` (if provided)
  * - Only `item`s are actually returned, not `sep`s
  * - Returns `undefined` if no `item`s are found
  */
-export const manySep1 = <TParsed, TError>(item: Parser<TParsed, TError>, sep: Parser<unknown, TError> | undefined): Parser<TParsed[], TError> => filter(manySep0(item, sep), parsed => parsed.length >= 1)
+export const manySep1 = manySep(1)
 
-export const manySep2 = <TParsed, TError>(item: Parser<TParsed, TError>, sep: Parser<unknown, TError> | undefined): Parser<TParsed[], TError> => filter(manySep0(item, sep), parsed => parsed.length >= 2)
+export const manySep2 = manySep(2)
 
 /**
  * Parse 0 or more instances of `item`. Succeeds even if nothing is found.
@@ -323,7 +346,7 @@ export const many1 = <TParsed, TError>(item: Parser<TParsed, TError>): Parser<TP
 /**
  * Parse 0 or more characters, where `chParser` is a 1-character parser, returned as a single string
  */
-export const take0 = <TError>(parser: Parser<string, TError>): Parser<string, TError> => input => {
+const take = (n: number) => <TError>(parser: Parser<string, TError>): Parser<string, TError> => input => {
 	let nextInput = input
 	let res = ''
 
@@ -332,7 +355,11 @@ export const take0 = <TError>(parser: Parser<string, TError>): Parser<string, TE
 		const charResult = parser(nextInput)
 
 		if (charResult == null) {
-			return { kind: 'success', parsed: res, input: nextInput, src: { code: input.code, start: input.index, end: nextInput.index } }
+			if (res.length < n) {
+				return undefined
+			} else {
+				return { kind: 'success', parsed: res, input: nextInput, src: { code: input.code, start: input.index, end: nextInput.index } }
+			}
 		} else if (charResult.kind === 'error') {
 			return charResult
 		} else {
@@ -342,10 +369,12 @@ export const take0 = <TError>(parser: Parser<string, TError>): Parser<string, TE
 	}
 }
 
+export const take0 = take(0)
+
 /**
  * Parse 1 or more characters, where `chParser` is a 1-character parser, returned as a single string
  */
-export const take1 = <TError>(parser: Parser<string, TError>): Parser<string, TError> => filter(take0(parser), s => s.length > 0)
+export const take1 = take(1)
 
 export type Precedence<T> = (startingAfter?: T) => T
 
@@ -354,7 +383,7 @@ export const drop = (parser: Parser<unknown>) => map(parser, () => undefined)
 /**
  * Any amount of whitespace (or none)
  */
-export const whitespace: Parser<undefined> = drop(take0(whitespaceChar))
+export const whitespace: Parser<undefined> = profile('whitespace', drop(take0(whitespaceChar)))
 
 export const backtrack = <TParsed, TBroken, TError>(inner: Parser<TParsed, TError>, rest: Parser<unknown, TError>, broken: (error: TError, src: ParseSource) => TBroken): Parser<TParsed | TBroken, TError> => input => {
 	const result = inner(input)
