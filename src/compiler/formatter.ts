@@ -6,7 +6,7 @@ export type FormatContext = {
 
 export const format = (ctx: FormatContext = { indentation: 0 }, ast: AST): string => {
 	const f = (ast: AST) => format(ctx, ast)
-	const nextIndentation = new Array(ctx.indentation + 1).fill('  ')
+	const nextIndentation = new Array(ctx.indentation + 1).fill('  ').join('')
 	const fIndent = (ast: AST) => '\n' + nextIndentation + format({ ...ctx, indentation: ctx.indentation + 1 }, ast)
 
 	const comments = ast.precedingComments?.map(f).join('\n\n') ?? ''
