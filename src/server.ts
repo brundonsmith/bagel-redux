@@ -302,10 +302,12 @@ connection.onHover(async (params) => {
 				const selection = findASTNodeAtPosition(document.offsetAt(params.position), result.parsed)
 
 				const type = (
-					// @ts-expect-error dsfghjdfgh
-					given(findParentWhere(selection, ast => ast.context === 'expression'), inferType) ??
-					// @ts-expect-error dsfghjdfgh
-					given(findParentWhere(selection, ast => ast.context === 'type-expression'), resolveType)
+					selection?.kind === 'plain-identifier' && selection.parent?.parent?.kind === 'const-declaration' ? inferType(selection.parent.parent.value) :
+						selection?.kind === 'plain-identifier' && selection.parent?.kind === 'type-declaration' ? resolveType(selection.parent.type) :
+							// @ts-expect-error dsfghjdfgh
+							given(findParentWhere(selection, ast => ast.context === 'expression'), inferType) ??
+							// @ts-expect-error dsfghjdfgh
+							given(findParentWhere(selection, ast => ast.context === 'type-expression'), resolveType)
 				)
 
 				if (type) {
