@@ -68,6 +68,11 @@ export type ParseResult = <TParsed, TError>
 	}
 	| nil
 
+/**
+ * A function that takes an input and attempts to parse from the front of it
+ */
+export type Parser = <TParsed, TError>(ParseInput) => ParseResult<TParsed, TError>
+
 export const char = (input: ParseInput) =>
 	if input.index >= 0 && input.index < input.code.length {
 		{

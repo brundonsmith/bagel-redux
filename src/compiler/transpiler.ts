@@ -1,4 +1,4 @@
-import { AST } from './parser'
+import { AST, Spread, TypeExpression } from './parser'
 import { profile, todo } from './utils'
 
 export type TranspileContext = {
@@ -16,7 +16,16 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 		case 'module': return comments + ast.declarations.map(trans).join('\n\n')
 		case 'import-declaration': return comments + `import { ${ast.imports.map(trans).join(', ')} } from ${trans(ast.uri)}`
 		case 'import-item': return comments + `${trans(ast.name)}${ast.alias ? ` as ${trans(ast.alias)}` : ''}`
-		case 'type-declaration': return comments + `${ast.exported ? 'export ' : ''}type ${trans(ast.name)} = ${trans(ast.type)}`
+		case 'type-declaration': {
+			let name = trans(ast.name)
+			let typ = ast.type
+			if (ast.type.kind === 'generic-type-expression') {
+				name += `<${ast.type.params.map(trans).join(', ')}>`
+				typ = ast.type.inner
+			}
+
+			return comments + `${ast.exported ? 'export ' : ''}type ${name} = ${trans(typ)}`
+		}
 		case 'const-declaration': return comments + `${ast.exported ? 'export ' : ''}const ${trans(ast.declared)} = ${trans(ast.value)}`
 		case 'typeof-type-expression': return comments + `typeof ${trans(ast.expression)}`
 		case 'function-type-expression': return comments + `(${ast.params.map((p, i) => `param${i}: ${trans(p)}`).join(', ')}) => ${trans(ast.returns)}`
@@ -39,15 +48,23 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 		case 'if-else-expression': return comments + `${ast.cases.map(trans).join('')} ${ast.defaultCase ? trans(ast.defaultCase) : NIL}`
 		case 'if-else-expression-case': return comments + `${trans(ast.condition)} ? ${trans(ast.outcome)} :`
 		case 'parenthesis': return comments + `(${trans(ast.inner)})`
-		case 'object-literal': return comments + `{ ${ast.entries.map(trans).join(', ')} }`
+		case 'object-literal': {
+			if (ast.context === 'type-expression') {
+				const spreads = ast.entries.filter(s => s.kind === 'spread')
+				const keyValues = ast.entries.filter(s => s.kind === 'key-value')
+				return comments + spreads.map(s => trans((s as Spread<TypeExpression>).spread) + ' & ').join('') + `{ ${keyValues.map(trans).join(', ')} }`
+			}
+
+			return comments + `{ ${ast.entries.map(trans).join(', ')} }`
+		}
 		case 'array-literal': return comments + `[${ast.elements.map(trans).join(', ')}]`
 		case 'string-literal': return comments + `'${ast.value}'`
 		case 'number-literal': return comments + String(ast.value)
 		case 'boolean-literal': return comments + String(ast.value)
 		case 'nil-literal': return comments + NIL // TODO: in a type context, make it null | undefined?
 		case 'comment': return comments + (
-			ast.comment.includes('\n')
-				? '/**\n' + ast.comment.split('\n').map(line => ` * ${line}\n`).join('') + ' */\n'
+			ast.commentType === 'block'
+				? '\n/**\n' + ast.comment.split('\n').map(line => ` * ${line}\n`).join('') + ' */\n'
 				: `// ${ast.comment}\n`
 		)
 		case 'range': return comments + todo()
