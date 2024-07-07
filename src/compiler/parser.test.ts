@@ -39,6 +39,7 @@ testCompleteParse(expression(), '[true,\n// foo\n 12, nil]', {
         {
           kind: 'comment',
           comment: 'foo',
+          commentType: 'line',
           src: { code: '[true,\n// foo\n 12, nil]', end: 14, start: 7, },
         },
       ],

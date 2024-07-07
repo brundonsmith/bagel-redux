@@ -1,6 +1,6 @@
 import { AST, Expression, TypeExpression } from './parser'
 import { ParseSource } from './parser-combinators'
-import { displayType, inferType, resolveValueDeclaration, resolveType, subsumationIssues, subsumes, resolveTypeDeclaration, simplifyType } from './types'
+import { displayType, inferType, resolveValueDeclaration, resolveType, subsumationIssues, subsumes, resolveTypeDeclaration, simplifyType, literal } from './types'
 import { profile } from './utils'
 
 export type CheckerError = { message: string, src: ParseSource, details?: { message: string, src: ParseSource }[] }
@@ -158,6 +158,19 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 			case 'if-else-expression': {
 				ch(ast.cases)
 				ch(ast.defaultCase)
+
+				for (const { condition } of ast.cases) {
+					const vals = [true, false] as const
+
+					for (const val of vals) {
+						if (subsumes({ to: literal(val), from: inferType(condition) })) {
+							error({
+								message: `Condition will always be ${val}, so this conditional is redundant`,
+								src: condition.src
+							})
+						}
+					}
+				}
 			} break
 			case 'object-literal': {
 				ch(ast.entries)
@@ -210,6 +223,14 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 			} break
 			case 'parenthesis': {
 				ch(ast.inner)
+			} break
+			case 'generic-type-expression': {
+				ch(ast.inner)
+				ch(ast.params)
+			} break
+			case 'generic-type-parameter': {
+				ch(ast.name)
+				ch(ast.extendz)
 			} break
 			case 'broken-subtree': {
 				error({

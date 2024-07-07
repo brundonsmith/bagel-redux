@@ -1,4 +1,5 @@
-import { ModuleAST, findASTNodeAtPosition } from './parser'
+import { findASTNodeAtPosition } from './ast-utils'
+import { ModuleAST } from './parser'
 import { valueDeclarationsInScope } from './types'
 import { profile } from './utils'
 

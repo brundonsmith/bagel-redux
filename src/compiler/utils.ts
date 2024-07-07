@@ -3,6 +3,12 @@ export const todo = (message?: string): any => {
 	throw Error('TODO' + (message ? ': ' + message : ''))
 }
 
+export const given = <T, R>(val: T | undefined, fn: (val: T) => R): R | undefined => {
+	if (val !== undefined) {
+		return fn(val)
+	}
+}
+
 export function zip<A, B>(arr1: A[], arr2: B[], mode: 'truncate'): Array<[A, B]>;
 export function zip<A, B>(arr1: A[], arr2: B[], mode: 'left'): Array<[A, B | undefined]>;
 export function zip<A, B>(arr1: A[], arr2: B[], mode: 'right'): Array<[A | undefined, B]>;
@@ -68,5 +74,15 @@ export const profile = <F extends Function>(name: string, fn: F): F => {
 		}
 
 		return result
+	}) as unknown as F
+}
+
+// eslint-disable-next-line @typescript-eslint/ban-types
+export const log = <F extends Function>(name: string, fn: F): F => {
+
+	return ((...args: any[]) => {
+		const res = fn(...args)
+		console.log(`${name}(${args.map(a => JSON.stringify(a)).join(', ')}) -> ${JSON.stringify(res)}`)
+		return res
 	}) as unknown as F
 }

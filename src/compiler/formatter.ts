@@ -20,10 +20,10 @@ export const format = (ctx: FormatContext = { indentation: 0 }, ast: AST): strin
 		case 'typeof-type-expression': return comments + `typeof ${f(ast.expression)}`
 		case 'function-type-expression': return comments + `(${ast.params.map(f).join(', ')}) => ${f(ast.returns)}`
 		case 'union-type-expression': return comments + ast.members.map(f).join(' | ')
-		case 'key-value':
-			return comments + `${f(ast.key)}: ${f(ast.value)}`
-		case 'spread':
-			return comments + `...${f(ast.spread)}`
+		case 'generic-type-expression': return comments + `<${ast.params.map(f).join(', ')}>${f(ast.inner)}`
+		case 'generic-type-parameter': return comments + `${f(ast.name)}${ast.extendz ? ` extends ${f(ast.extendz)}` : ''}`
+		case 'key-value': return comments + `${ast.key.kind === 'string-literal' && isValidIdentifier(ast.key.value) ? ast.key.value : f(ast.key)}: ${f(ast.value)}`
+		case 'spread': return comments + `...${f(ast.spread)}`
 		case 'string-type-expression': return comments + 'string'
 		case 'number-type-expression': return comments + 'number'
 		case 'boolean-type-expression': return comments + 'boolean'
@@ -48,8 +48,8 @@ export const format = (ctx: FormatContext = { indentation: 0 }, ast: AST): strin
 		case 'boolean-literal': return comments + String(ast.value)
 		case 'nil-literal': return comments + 'nil'
 		case 'comment': return comments + (
-			ast.comment.includes('\n')
-				? '/**\n' + ast.comment.split('\n').map(line => ` * ${line}\n`).join('') + ' */\n'
+			ast.commentType === 'block'
+				? '\n/**\n' + ast.comment.split('\n').map(line => ` * ${line}\n`).join('') + ' */\n'
 				: `// ${ast.comment}\n`
 		)
 		case 'range': return comments + `${ast.start ? f(ast.start) : ''}..${ast.end ? f(ast.end) : ''}`

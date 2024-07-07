@@ -22,10 +22,12 @@ import {
 import {
 	TextDocument
 } from 'vscode-languageserver-textdocument'
-import { findASTNodeAtPosition, parseModule } from './compiler/parser'
+import { AST, Expression, TypeExpression, parseModule } from './compiler/parser'
 import { check } from './compiler/checker'
 import { getCompletions } from './compiler/completions'
-import { displayType, inferType } from './compiler/types'
+import { boolean, displayType, inferType, resolveType } from './compiler/types'
+import { findASTNodeAtPosition } from './compiler/ast-utils'
+import { given } from './compiler/utils'
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -299,9 +301,14 @@ connection.onHover(async (params) => {
 			try {
 				const selection = findASTNodeAtPosition(document.offsetAt(params.position), result.parsed)
 
-				if (selection?.kind === 'local-identifier') {
-					const type = inferType(selection)
+				const type = (
+					// @ts-expect-error dsfghjdfgh
+					given(findParentWhere(selection, ast => ast.context === 'expression'), inferType) ??
+					// @ts-expect-error dsfghjdfgh
+					given(findParentWhere(selection, ast => ast.context === 'type-expression'), resolveType)
+				)
 
+				if (type) {
 					return {
 						contents: {
 							kind: 'plaintext',
@@ -310,6 +317,7 @@ connection.onHover(async (params) => {
 						}
 					}
 				}
+
 			} catch (e) {
 				console.error(e)
 			}
@@ -318,6 +326,17 @@ connection.onHover(async (params) => {
 
 	return undefined
 })
+
+const findParentWhere = (ast: AST | undefined, fn: (ast: AST) => boolean): AST | undefined => {
+	let current: AST | undefined = ast
+	while (current != null) {
+		if (fn(current)) {
+			return current
+		} else[
+			current = current.parent
+		]
+	}
+}
 
 // Make the text document manager listen on the connection
 // for open, change and close text document events

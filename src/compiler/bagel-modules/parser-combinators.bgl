@@ -15,11 +15,58 @@ export type ParseInput = {
 	index: number
 }
 
+/**
+ * Source location in the original code string; useful for error output
+ */
 export type ParseSource = {
+
+	/**
+	 * Entire original code string
+	 */
 	code: string,
+
+	/**
+	 * Index in the code string where this entity starts
+	 */
 	start: number,
+
+	/**
+	 * Index in the code string where this entity ends
+	 */
 	end: number
 }
+
+/**
+ * The outcome of a parse attempt. `undefined` means the expected thing wasn't
+ * found, but nothing was necessarily malformed
+ */
+export type ParseResult = <TParsed, TError>
+	| {
+		kind: 'success',
+
+		/**
+		 * The remaining input after having parsed this
+		 */
+		input: ParseInput,
+
+		/**
+		 * The span of the source string occupied by this parsed value; useful when outputting AST nodes
+		 */
+		src: ParseSource,
+
+		parsed: TParsed,
+	}
+	| {
+		kind: 'error',
+
+		/**
+		 * The remaining input after having parsed this (for errors, should be the same as original input)
+		 */
+		input: ParseInput,
+
+		error: TError
+	}
+	| nil
 
 export const char = (input: ParseInput) =>
 	if input.index >= 0 && input.index < input.code.length {

@@ -16,6 +16,7 @@ export type AST =
 	| ImportItem
 	| IfElseExpressionCase
 	| NameAndType
+	| GenericTypeParameter
 	| PlainIdentifier
 	| Comment
 	| BrokenSubtree
@@ -37,6 +38,7 @@ export type TypeDeclaration = Readonly<{ kind: 'type-declaration', exported: boo
 export type ConstDeclaration = Readonly<{ kind: 'const-declaration', exported: boolean, declared: NameAndType, value: Expression } & ASTInfo>
 
 export type TypeExpression =
+	| GenericTypeExpression
 	| TypeofTypeExpression
 	| FunctionTypeExpression
 	| UnionTypeExpression
@@ -55,6 +57,8 @@ export type TypeExpression =
 	| UnknownTypeExpression
 	| BrokenSubtree
 
+export type GenericTypeExpression = Readonly<{ kind: 'generic-type-expression', inner: TypeExpression, params: GenericTypeParameter[] } & ASTInfo>
+export type GenericTypeParameter = Readonly<{ kind: 'generic-type-parameter', name: PlainIdentifier, extendz: TypeExpression | undefined } & ASTInfo>
 export type ParenthesisTypeExpression = Readonly<{ kind: 'parenthesis', inner: TypeExpression } & ASTInfo>
 export type ObjectTypeExpression = Readonly<{ kind: 'object-literal', entries: Array<Readonly<{ kind: 'key-value', key: TypeExpression, value: TypeExpression } & ASTInfo> | Readonly<{ kind: 'spread', spread: TypeExpression } & ASTInfo>> } & ASTInfo>
 export type ArrayTypeExpression = Readonly<{ kind: 'array-literal', elements: Array<TypeExpression | Readonly<{ kind: 'spread', spread: TypeExpression } & ASTInfo>> } & ASTInfo>
@@ -110,7 +114,7 @@ export type Spread<T> = Readonly<{ kind: 'spread', spread: T } & ASTInfo>
 
 export type PlainIdentifier = Readonly<{ kind: 'plain-identifier', identifier: string } & ASTInfo>
 
-export type Comment = Readonly<{ kind: 'comment', comment: string } & ASTInfo>
+export type Comment = Readonly<{ kind: 'comment', comment: string, commentType: 'line' | 'block' } & ASTInfo>
 export type BrokenSubtree = Readonly<{ kind: 'broken-subtree', error: string } & ASTInfo>
 
 type BagelParser<T> = Parser<T, string>
@@ -142,7 +146,7 @@ const precedenceWithContext = <TParsers extends Parser<ASTInfo, unknown>[]>(
 			: all
 }
 
-const linesComment = profile('linesComment', map(
+const linesComment: BagelParser<Comment> = profile('linesComment', map(
 	manySep1(
 		map(
 			tuple(
@@ -157,11 +161,12 @@ const linesComment = profile('linesComment', map(
 	(lines, src) => ({
 		kind: 'comment' as const,
 		comment: lines.join('\n'),
+		commentType: 'line' as const,
 		src
 	})
 ))
 
-const blockComment = profile('blockComment', map(
+const blockComment: BagelParser<Comment> = profile('blockComment', map(
 	tuple(
 		exact('/*'),
 		subParser(
@@ -190,6 +195,7 @@ const blockComment = profile('blockComment', map(
 	([_0, lines], src) => ({
 		kind: 'comment' as const,
 		comment: lines.join('\n'),
+		commentType: 'block' as const,
 		src
 	})
 ))
@@ -228,7 +234,7 @@ const identifier: BagelParser<string> = profile('identifier', map(
 	(_, src) => src.code.substring(src.start, src.end)
 ))
 
-export const isValidIdentifier = (str: string) => identifier(input(str))?.input.index === str.length
+export const isValidIdentifier = (str: string | undefined) => str && identifier(input(str))?.input.index === str.length
 
 const localIdentifier: BagelParser<LocalIdentifier> = map(
 	identifier,
@@ -429,6 +435,51 @@ const nameAndType: BagelParser<NameAndType> = profile('nameAndType', input => ma
 	} as const)
 )(input))
 
+const genericTypeExpression: BagelParser<GenericTypeExpression | BrokenSubtree> = input => backtrack(
+	map(
+		tuple(
+			exact('<'),
+			whitespace,
+			manySep0(genericTypeParameter, tuple(whitespace, exact(','), whitespace)), // TODO: spreads
+			whitespace,
+			optional(exact(',')),
+			whitespace,
+			expect('>'),
+			whitespace,
+			typeExpression()
+		),
+		([_0, _1, params, _2, _3, _4, _5, _6, inner], src) => ({
+			kind: 'generic-type-expression' as const,
+			inner,
+			params,
+			src
+		})
+	),
+	takeUntil('>'),
+	(error, src) => ({ kind: 'broken-subtree', error, src } as const)
+)(input)
+
+const genericTypeParameter: BagelParser<GenericTypeParameter> = input => map(
+	tuple(
+		plainIdentifier,
+		whitespace,
+		optional(map(
+			tuple(
+				exact('extends'),
+				whitespace,
+				typeExpression()
+			),
+			([_0, _1, extendz]) => extendz
+		))
+	),
+	([name, _0, extendz], src) => ({
+		kind: 'generic-type-parameter' as const,
+		name,
+		extendz,
+		src
+	})
+)(input)
+
 const typeofTypeExpression: BagelParser<TypeofTypeExpression> = input => map(
 	tuple(
 		exact('typeof'),
@@ -463,8 +514,12 @@ const functionTypeExpression: BagelParser<FunctionTypeExpression> = input => map
 )(input)
 
 const unionTypeExpression: BagelParser<UnionTypeExpression> = input => map(
-	manySep2(typeExpression(unionTypeExpression), tuple(whitespace, exact('|'), whitespace)),
-	(members, src) => ({
+	tuple(
+		optional(exact('|')),
+		whitespace,
+		manySep2(typeExpression(unionTypeExpression), tuple(whitespace, exact('|'), whitespace))
+	),
+	([_0, _1, members], src) => ({
 		kind: 'union-type-expression',
 		members,
 		src
@@ -644,6 +699,7 @@ const arrayLiteralTypeExpression = input => arrayLiteral(typeExpression())(input
 // @ts-expect-error sdfjhg
 const typeExpression: Precedence<BagelParser<TypeExpression>> = precedenceWithContext(
 	'type-expression',
+	genericTypeExpression,
 	typeofTypeExpression,
 	functionTypeExpression,
 	unionTypeExpression,
@@ -677,14 +733,12 @@ const propertyAccessExpression: BagelParser<PropertyAccessExpression> = input =>
 		),
 	),
 	([subject, [firstProperty, ...rest]], src) => {
-		const first = {
+		let current = {
 			kind: 'property-access-expression' as const,
 			subject,
 			property: firstProperty!,
 			src
 		}
-
-		let current = first
 
 		for (const property of rest) {
 			current = {
@@ -698,7 +752,7 @@ const propertyAccessExpression: BagelParser<PropertyAccessExpression> = input =>
 			}
 		}
 
-		return first
+		return current
 	}
 )(input)
 
@@ -900,58 +954,3 @@ const parentChildren = (ast: AST) => {
 		}
 	}
 }
-
-export const findASTNodeAtPosition = profile('findASTNodeAtPosition', (position: number, ast: AST): AST | undefined => {
-	if (position < ast.src.start || position >= ast.src.end) {
-		return undefined
-	}
-
-	const findIn = (ast: AST) => findASTNodeAtPosition(position, ast)
-
-	let childrenArray: Array<AST | undefined>
-	switch (ast.kind) {
-		case 'spread': childrenArray = [findIn(ast.spread)]; break
-		case 'module': childrenArray = [...ast.declarations.map(findIn)]; break
-		case 'import-declaration': childrenArray = [findIn(ast.uri), ...ast.imports.map(findIn)]; break
-		case 'import-item': childrenArray = [findIn(ast.name), ast.alias && findIn(ast.alias)]; break
-		case 'type-declaration': childrenArray = [findIn(ast.name), ast.type]; break
-		case 'const-declaration': childrenArray = [findIn(ast.declared), findIn(ast.value)]; break
-		case 'typeof-type-expression': childrenArray = [findIn(ast.expression)]; break
-		case 'function-type-expression': childrenArray = [...ast.params.map(findIn), findIn(ast.returns)]; break
-		case 'union-type-expression': childrenArray = [...ast.members.map(findIn)]; break
-		case 'parenthesis': childrenArray = [findIn(ast.inner)]; break
-		case 'object-literal': childrenArray = [...ast.entries.map(findIn)]; break
-		case 'array-literal': childrenArray = [...ast.elements.map(findIn)]; break
-		case 'key-value': childrenArray = [findIn(ast.key), findIn(ast.value)]; break
-		case 'property-access-expression': childrenArray = [findIn(ast.subject), findIn(ast.property)]; break
-		case 'as-expression': childrenArray = [findIn(ast.expression), findIn(ast.type)]; break
-		case 'function-expression': childrenArray = [...ast.params.map(findIn), ast.returnType && findIn(ast.returnType), findIn(ast.body)]; break
-		case 'invocation': childrenArray = [findIn(ast.subject), ...ast.args.map(findIn)]; break
-		case 'binary-operation-expression': childrenArray = [findIn(ast.left), findIn(ast.right)]; break
-		case 'if-else-expression': childrenArray = [...ast.cases.map(findIn), ast.defaultCase && findIn(ast.defaultCase)]; break
-		case 'if-else-expression-case': childrenArray = [findIn(ast.condition), findIn(ast.outcome)]; break
-		case 'name-and-type': childrenArray = [findIn(ast.name), ast.type && findIn(ast.type)]; break
-		case 'range': childrenArray = [ast.start && findIn(ast.start), ast.end && findIn(ast.end)]; break
-
-		// atomic; we've gotten there
-		case 'string-type-expression':
-		case 'number-type-expression':
-		case 'boolean-type-expression':
-		case 'string-literal':
-		case 'number-literal':
-		case 'boolean-literal':
-		case 'nil-literal':
-		case 'unknown-type-expression':
-		case 'local-identifier':
-		case 'plain-identifier':
-		case 'comment':
-		case 'broken-subtree':
-			childrenArray = []
-			break
-	}
-
-	childrenArray.push(ast)
-	return childrenArray.filter(exists)[0]
-})
-
-const exists = <T>(x: T | null | undefined): x is T => x != null
