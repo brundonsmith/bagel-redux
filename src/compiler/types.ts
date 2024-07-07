@@ -784,11 +784,21 @@ export const simplifyType = (type: Type): Type => {
 			kind: 'object-type',
 			entries: (
 				Array.isArray(type.entries)
-					? type.entries.map(entry =>
-						entry.kind === 'spread'
-							? { kind: 'spread', spread: simplifyType(entry.spread) }
-							: { kind: 'key-value-type', key: simplifyType(entry.key), value: simplifyType(entry.value) }
-					)
+					? type.entries
+						.map(entry => {
+							if (entry.kind === 'spread') {
+								const s = simplifyType(entry.spread)
+
+								if (s.kind === 'object-type' && Array.isArray(s.entries)) {
+									return s.entries
+								} else {
+									return { kind: 'spread' as const, spread: s }
+								}
+							} else {
+								return [{ kind: 'key-value-type' as const, key: simplifyType(entry.key), value: simplifyType(entry.value) }]
+							}
+						})
+						.flat()
 					: { kind: 'key-value-type', key: simplifyType(type.entries.key), value: simplifyType(type.entries.value) }
 			)
 		}
@@ -860,7 +870,7 @@ export const displayType = (type: Type | SpreadType | KeyValueType): string => {
 			return `${isValidIdentifier(keyName) ? keyName : displayType(simplified.key)}: ${displayType(simplified.value)}`
 		}
 		case 'array-type': return Array.isArray(simplified.elements) ? `[${simplified.elements.map(displayType).join(', ')}]` : displayType(simplified.elements) + '[]'
-		case 'spread': return `...${displayType(simplified)}`
+		case 'spread': return `...${displayType(simplified.spread)}`
 		case 'string-type': return simplified.value != null ? `'${simplified.value}'` : 'string'
 		case 'number-type': return simplified.value == null ? 'number' : typeof simplified.value === 'number' ? String(simplified.value) : `${simplified.value.start ?? ''}..${simplified.value.end ?? ''}`
 		case 'boolean-type': return simplified.value != null ? String(simplified.value) : 'boolean'
