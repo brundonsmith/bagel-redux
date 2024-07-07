@@ -34,6 +34,7 @@ export const findASTNodeAtPosition = profile('findASTNodeAtPosition', (position:
 		case 'range': childrenArray = [ast.start && findIn(ast.start), ast.end && findIn(ast.end)]; break
 		case 'generic-type-expression': childrenArray = [ast.inner, ...ast.params.map(findIn)]; break
 		case 'generic-type-parameter': childrenArray = [ast.name, ast.extendz && findIn(ast.extendz)]; break
+		case 'parameterized-type-expression': childrenArray = [ast.inner, ...ast.params.map(findIn)]; break
 
 		// atomic; we've gotten there
 		case 'string-type-expression':

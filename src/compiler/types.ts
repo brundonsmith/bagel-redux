@@ -215,6 +215,11 @@ export const resolveType = (typeExpression: TypeExpression): Type => {
 			inner: resolveType(typeExpression.inner),
 			params: typeExpression.params.map(({ name, extendz }) => ({ name: name.identifier, extendz: extendz ? resolveType(extendz) : undefined }))
 		}
+		case 'parameterized-type-expression': return {
+			kind: 'parameterized-type',
+			inner: resolveType(typeExpression.inner),
+			params: typeExpression.params.map(resolveType)
+		}
 		case 'parenthesis': return resolveType(typeExpression.inner)
 		case 'object-literal': return {
 			kind: 'object-type',

@@ -39,6 +39,7 @@ export type ConstDeclaration = Readonly<{ kind: 'const-declaration', exported: b
 
 export type TypeExpression =
 	| GenericTypeExpression
+	| ParameterizedTypeExpression
 	| TypeofTypeExpression
 	| FunctionTypeExpression
 	| UnionTypeExpression
@@ -59,6 +60,7 @@ export type TypeExpression =
 
 export type GenericTypeExpression = Readonly<{ kind: 'generic-type-expression', inner: TypeExpression, params: GenericTypeParameter[] } & ASTInfo>
 export type GenericTypeParameter = Readonly<{ kind: 'generic-type-parameter', name: PlainIdentifier, extendz: TypeExpression | undefined } & ASTInfo>
+export type ParameterizedTypeExpression = Readonly<{ kind: 'parameterized-type-expression', inner: TypeExpression, params: TypeExpression[] } & ASTInfo>
 export type ParenthesisTypeExpression = Readonly<{ kind: 'parenthesis', inner: TypeExpression } & ASTInfo>
 export type ObjectTypeExpression = Readonly<{ kind: 'object-literal', entries: Array<Readonly<{ kind: 'key-value', key: TypeExpression, value: TypeExpression } & ASTInfo> | Readonly<{ kind: 'spread', spread: TypeExpression } & ASTInfo>> } & ASTInfo>
 export type ArrayTypeExpression = Readonly<{ kind: 'array-literal', elements: Array<TypeExpression | Readonly<{ kind: 'spread', spread: TypeExpression } & ASTInfo>> } & ASTInfo>
@@ -480,6 +482,30 @@ const genericTypeParameter: BagelParser<GenericTypeParameter> = input => map(
 	})
 )(input)
 
+const parameterizedTypeExpression: BagelParser<ParameterizedTypeExpression | BrokenSubtree> = input => backtrack(
+	map(
+		tuple(
+			typeExpression(parameterizedTypeExpression),
+			whitespace,
+			exact('<'),
+			whitespace,
+			manySep0(typeExpression(), tuple(whitespace, exact(','), whitespace)), // TODO: spreads
+			whitespace,
+			optional(exact(',')),
+			whitespace,
+			expect('>'),
+		),
+		([inner, _0, _1, _2, params, _3, _4, _5, _6], src) => ({
+			kind: 'parameterized-type-expression' as const,
+			inner,
+			params,
+			src
+		})
+	),
+	takeUntil('>'),
+	(error, src) => ({ kind: 'broken-subtree', error, src } as const)
+)(input)
+
 const typeofTypeExpression: BagelParser<TypeofTypeExpression> = input => map(
 	tuple(
 		exact('typeof'),
@@ -700,6 +726,7 @@ const arrayLiteralTypeExpression = input => arrayLiteral(typeExpression())(input
 const typeExpression: Precedence<BagelParser<TypeExpression>> = precedenceWithContext(
 	'type-expression',
 	genericTypeExpression,
+	parameterizedTypeExpression,
 	typeofTypeExpression,
 	functionTypeExpression,
 	unionTypeExpression,

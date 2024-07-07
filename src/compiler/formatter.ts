@@ -22,6 +22,7 @@ export const format = (ctx: FormatContext = { indentation: 0 }, ast: AST): strin
 		case 'union-type-expression': return comments + ast.members.map(f).join(' | ')
 		case 'generic-type-expression': return comments + `<${ast.params.map(f).join(', ')}>${f(ast.inner)}`
 		case 'generic-type-parameter': return comments + `${f(ast.name)}${ast.extendz ? ` extends ${f(ast.extendz)}` : ''}`
+		case 'parameterized-type-expression': return comments + `${f(ast.inner)}<${ast.params.map(f).join(', ')}>`
 		case 'key-value': return comments + `${ast.key.kind === 'string-literal' && isValidIdentifier(ast.key.value) ? ast.key.value : f(ast.key)}: ${f(ast.value)}`
 		case 'spread': return comments + `...${f(ast.spread)}`
 		case 'string-type-expression': return comments + 'string'

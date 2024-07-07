@@ -23,6 +23,7 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 		case 'union-type-expression': return comments + ast.members.map(trans).join(' | ')
 		case 'generic-type-expression': return comments + `<${ast.params.map(trans).join(', ')}>${trans(ast.inner)}`
 		case 'generic-type-parameter': return comments + `${trans(ast.name)}${ast.extendz ? ` extends ${trans(ast.extendz)}` : ''}`
+		case 'parameterized-type-expression': return comments + `${trans(ast.inner)}<${ast.params.map(trans).join(', ')}>`
 		case 'key-value': return comments + `${trans(ast.key)}: ${trans(ast.value)}`
 		case 'spread': return comments + `...${trans(ast.spread)}`
 		case 'string-type-expression': return comments + 'string'

@@ -224,7 +224,8 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 			case 'parenthesis': {
 				ch(ast.inner)
 			} break
-			case 'generic-type-expression': {
+			case 'generic-type-expression':
+			case 'parameterized-type-expression': {
 				ch(ast.inner)
 				ch(ast.params)
 			} break
