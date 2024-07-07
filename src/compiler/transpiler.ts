@@ -28,7 +28,7 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 		}
 		case 'const-declaration': return comments + `${ast.exported ? 'export ' : ''}const ${trans(ast.declared)} = ${trans(ast.value)}`
 		case 'typeof-type-expression': return comments + `typeof ${trans(ast.expression)}`
-		case 'function-type-expression': return comments + `(${ast.params.map((p, i) => `param${i}: ${trans(p)}`).join(', ')}) => ${trans(ast.returns)}`
+		case 'function-type-expression': return comments + `(${ast.params.map((p, i) => `_${i}: ${trans(p)}`).join(', ')}) => ${trans(ast.returns)}`
 		case 'union-type-expression': return comments + ast.members.map(trans).join(' | ')
 		case 'generic-type-expression': return comments + `<${ast.params.map(trans).join(', ')}>${trans(ast.inner)}`
 		case 'generic-type-parameter': return comments + `${trans(ast.name)}${ast.extendz ? ` extends ${trans(ast.extendz)}` : ''}`
