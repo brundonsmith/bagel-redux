@@ -3,86 +3,121 @@
  * The input to a given parse function
  */
 export type ParseInput = {
-
-	/**
-	 * Entire original code string
-	 */
-	code: string,
-	
-	/**
-	 * Current index within the code string
-	 */
-	index: number
+  
+/**
+ * Entire original code string
+ */
+code: string,
+  
+/**
+ * Current index within the code string
+ */
+index: number,
 }
+
 
 /**
  * Source location in the original code string; useful for error output
  */
 export type ParseSource = {
-
-	/**
-	 * Entire original code string
-	 */
-	code: string,
-
-	/**
-	 * Index in the code string where this entity starts
-	 */
-	start: number,
-
-	/**
-	 * Index in the code string where this entity ends
-	 */
-	end: number
+  
+/**
+ * Entire original code string
+ */
+code: string,
+  
+/**
+ * Index in the code string where this entity starts
+ */
+start: number,
+  
+/**
+ * Index in the code string where this entity ends
+ */
+end: number,
 }
+
 
 /**
  * The outcome of a parse attempt. `undefined` means the expected thing wasn't
  * found, but nothing was necessarily malformed
  */
-export type ParseResult = <TParsed, TError>
-	| {
-		kind: 'success',
+export type ParseResult = <
+  TParsed,
+  TError,
+>
+  | {
+    kind: 'success',
+    
+/**
+ * The remaining input after having parsed this
+ */
+input: ParseInput,
+    
+/**
+ * The span of the source string occupied by this parsed value; useful when outputting AST nodes
+ */
+src: ParseSource,
+    parsed: TParsed,
+  }
+  | {
+    kind: 'error',
+    
+/**
+ * The remaining input after having parsed this (for errors, should be the same as original input)
+ */
+input: ParseInput,
+    error: TError,
+  }
+  | nil
 
-		/**
-		 * The remaining input after having parsed this
-		 */
-		input: ParseInput,
 
-		/**
-		 * The span of the source string occupied by this parsed value; useful when outputting AST nodes
-		 */
-		src: ParseSource,
-
-		parsed: TParsed,
-	}
-	| {
-		kind: 'error',
-
-		/**
-		 * The remaining input after having parsed this (for errors, should be the same as original input)
-		 */
-		input: ParseInput,
-
-		error: TError
-	}
-	| nil
 
 /**
  * A function that takes an input and attempts to parse from the front of it
  */
-export type Parser = <TParsed, TError>(ParseInput) => ParseResult<TParsed, TError>
+export type Parser = <
+  TParsed,
+  TError,
+>(
+  ParseInput,
+) => ParseResult<TParsed, TError>
 
-export const char = (input: ParseInput) =>
-	if input.index >= 0 && input.index < input.code.length {
-		{
-			kind: 'success',
-			parsed: input.code[input.index],
-			input: { ...input, index: input.index + 1 },
-			src: {
-				code: input.code,
-				start: input.index,
-				end: input.index + 1
-			}
-		}
-	}
+export const char = (
+  input: ParseInput,
+) => 
+  if input.index >= 0 && input.index < input.code.length {
+    {
+      kind: 'success',
+      parsed: input.code[input.index],
+      input: { ...input, index: input.index + 1 },
+      src: {
+        code: input.code,
+        start: input.index,
+        end: input.index + 1,
+      },
+    }
+  }
+
+
+/**
+ * Create an initial `ParseInput` from just a code string
+ */
+export const input = (
+  code: string,
+): ParseInput => { code, index: 0 }
+
+
+/**
+ * Don't progress input, return a successful parse of `undefined`
+ */
+export const nothing: Parser<nil, nil> = input => {
+  kind: 'success',
+  parsed: nil,
+  input,
+  src: {
+    code: input.code,
+    start: input.index,
+    end: input.index,
+  },
+}

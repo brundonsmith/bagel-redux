@@ -1,28 +1,81 @@
 import { AST, isValidIdentifier } from './parser'
 
 export type FormatContext = {
-	indentation: number
+	indentation: number,
+	multiline: boolean,
 }
 
-export const format = (ctx: FormatContext = { indentation: 0 }, ast: AST): string => {
-	const f = (ast: AST) => format(ctx, ast)
-	const nextIndentation = new Array(ctx.indentation + 1).fill('  ').join('')
-	const fIndent = (ast: AST) => '\n' + nextIndentation + format({ ...ctx, indentation: ctx.indentation + 1 }, ast)
+const maxLineWidth = 40
+const indentationUnit = '  '
+
+export const format = (ast: AST, { indentation, multiline }: FormatContext = { indentation: 0, multiline: false }): string => {
+	const f = (ast: AST) => {
+		const singleLine = format(ast, { indentation, multiline: false })
+
+		if (singleLine.length <= maxLineWidth) {
+			return singleLine
+		} else {
+			return format(ast, { indentation, multiline: true })
+		}
+	}
+	const fi = (ast: AST) => {
+		const singleLine = format(ast, { indentation: indentation + 1, multiline: false })
+		// TODO: factor in the current line preceding this node
+		// TODO: length of widest line, not entire string
+		if (singleLine.length <= maxLineWidth) {
+			return singleLine
+		} else {
+			return format(ast, { indentation: indentation + 1, multiline: true })
+		}
+	}
+	const fii = (ast: AST) => {
+		const singleLine = format(ast, { indentation: indentation + 2, multiline: false })
+		// TODO: factor in the current line preceding this node
+		// TODO: length of widest line, not entire string
+		if (singleLine.length <= maxLineWidth) {
+			return singleLine
+		} else {
+			return format(ast, { indentation: indentation + 2, multiline: true })
+		}
+	}
+	const indent = new Array(indentation).fill(indentationUnit).join('')
+	const nextIndent = new Array(indentation + 1).fill(indentationUnit).join('')
+	const nextNextIndent = new Array(indentation + 2).fill(indentationUnit).join('')
 
 	const comments = ast.precedingComments?.map(f).join('\n\n') ?? ''
 
+	const commaSeparated = (ast: AST[]) => `${multiline ? '\n' : ''}${ast.map((e, i) => multiline ? `${nextIndent}${fi(e)},\n` : ((i > 0 ? ', ' : '') + f(e))).join('')}${multiline ? indent : ''}`
+
 	switch (ast.kind) {
-		case 'module': return comments + ast.declarations.map(f).join('\n\n')
-		case 'import-declaration': return comments + `from ${f(ast.uri)} import { ${ast.imports.map(f).join(', ')} }`
+		case 'module': {
+			const imports = ast.declarations
+				.filter(d => d.kind === 'import-declaration')
+				.sort((a, b) => a.uri.value.localeCompare(b.uri.value))
+
+			const remoteImports = imports
+				.filter(i => /^https?:/.test(i.uri.value))
+
+			const localImports = imports
+				.filter(i => !/^https?:/.test(i.uri.value))
+
+			const nonImports = ast.declarations
+				.filter(d => d.kind !== 'import-declaration')
+
+			return comments
+				+ remoteImports.map(f).join('\n') + (remoteImports.length > 0 ? '\n' : '')
+				+ localImports.map(f).join('\n') + (localImports.length > 0 ? '\n' : '')
+				+ nonImports.map(f).join('\n\n')
+		}
+		case 'import-declaration': return comments + `from ${f(ast.uri)} import { ${commaSeparated(ast.imports)} }`
 		case 'import-item': return comments + `${f(ast.name)}${ast.alias ? ` as ${f(ast.alias)}` : ''}`
 		case 'type-declaration': return comments + `${ast.exported ? 'export ' : ''}type ${f(ast.name)} = ${f(ast.type)}`
 		case 'const-declaration': return comments + `${ast.exported ? 'export ' : ''}const ${f(ast.declared)} = ${f(ast.value)}`
 		case 'typeof-type-expression': return comments + `typeof ${f(ast.expression)}`
-		case 'function-type-expression': return comments + `(${ast.params.map(f).join(', ')}) => ${f(ast.returns)}`
-		case 'union-type-expression': return comments + ast.members.map(f).join(' | ')
-		case 'generic-type-expression': return comments + `<${ast.params.map(f).join(', ')}>${f(ast.inner)}`
+		case 'function-type-expression': return comments + `(${commaSeparated(ast.params)}) => ${f(ast.returns)}`
+		case 'union-type-expression': return comments + `${multiline ? '\n' : ''}${ast.members.map((e, i) => multiline ? `${nextIndent}| ${fi(e)}\n` : ((i > 0 ? ' | ' : '') + f(e))).join('')}${multiline ? indent : ''}`
+		case 'generic-type-expression': return comments + `<${commaSeparated(ast.params)}>${f(ast.inner)}`
 		case 'generic-type-parameter': return comments + `${f(ast.name)}${ast.extendz ? ` extends ${f(ast.extendz)}` : ''}`
-		case 'parameterized-type-expression': return comments + `${f(ast.inner)}<${ast.params.map(f).join(', ')}>`
+		case 'parameterized-type-expression': return comments + `${f(ast.inner)}<${commaSeparated(ast.params)}>`
 		case 'key-value': return comments + `${ast.key.kind === 'string-literal' && isValidIdentifier(ast.key.value) ? ast.key.value : f(ast.key)}: ${f(ast.value)}`
 		case 'spread': return comments + `...${f(ast.spread)}`
 		case 'string-type-expression': return comments + 'string'
@@ -33,17 +86,21 @@ export const format = (ctx: FormatContext = { indentation: 0 }, ast: AST): strin
 			? `.${ast.property.value}`
 			: `[${f(ast.property)}]`}`
 		case 'as-expression': return comments + `${f(ast.expression)} as ${f(ast.type)}`
-		case 'function-expression': return comments + `(${ast.params.map(f).join(', ')})${ast.returnType ? `: ${f(ast.returnType)}` : ''} => ${f(ast.body)}`
+		case 'function-expression': return comments + (
+			ast.params.length === 1 && ast.params[0]?.type == null && ast.returnType == null
+				? `${ast.params[0]!.name.identifier} => ${f(ast.body)}`
+				: `(${commaSeparated(ast.params)})${ast.returnType ? `: ${f(ast.returnType)}` : ''} => ${f(ast.body)}`
+		)
 		case 'name-and-type': return comments + f(ast.name) + (ast.type ? `: ${f(ast.type)}` : '')
-		case 'invocation': return comments + `${f(ast.subject)}(${ast.args.map(f).join(', ')})`
+		case 'invocation': return comments + `${f(ast.subject)}(${commaSeparated(ast.args)})`
 		case 'binary-operation-expression': return comments + `${f(ast.left)} ${ast.op} ${f(ast.right)}`
 		case 'if-else-expression': {
-			return comments + `${ast.cases.map(f).join(' else ')}${ast.defaultCase ? ` else {${fIndent(ast.defaultCase)}\n}` : ''}`
+			return comments + (multiline ? '\n' + nextIndent : '') + `${ast.cases.map(multiline ? fi : f).join(' else ')}${ast.defaultCase ? ` else {${multiline ? '\n' : ''}${multiline ? `${nextNextIndent}${fi(ast.defaultCase)}` : f(ast.defaultCase)}${multiline ? '\n' + nextIndent : ''}}` : ''}`
 		}
-		case 'if-else-expression-case': return comments + `if ${f(ast.condition)} {${fIndent(ast.outcome)}\n}`
+		case 'if-else-expression-case': return comments + `if ${f(ast.condition)} {${multiline ? '\n' : ''}${multiline ? `${nextIndent}${fi(ast.outcome)}` : f(ast.outcome)}${multiline ? '\n' + indent : ''}}`
 		case 'parenthesis': return comments + `(${f(ast.inner)})`
-		case 'object-literal': return comments + `{${ast.entries.map(fIndent).join(', ')}\n}`
-		case 'array-literal': return comments + `[${ast.elements.map(f).join(', ')}]`
+		case 'object-literal': return comments + `{${!multiline ? ' ' : ''}${commaSeparated(ast.entries)}${!multiline ? ' ' : ''}}`
+		case 'array-literal': return comments + `[${commaSeparated(ast.elements)}]`
 		case 'string-literal': return comments + `'${ast.value}'`
 		case 'number-literal': return comments + String(ast.value)
 		case 'boolean-literal': return comments + String(ast.value)

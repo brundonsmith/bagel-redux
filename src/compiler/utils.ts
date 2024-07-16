@@ -86,3 +86,8 @@ export const log = <F extends Function>(name: string, fn: F): F => {
 		return res
 	}) as unknown as F
 }
+
+export const logE = <T>(val: T): T => {
+	console.log(val)
+	return val
+}

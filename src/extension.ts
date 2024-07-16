@@ -58,7 +58,7 @@ export function activate(context: ExtensionContext) {
 			const parsed = parseModule(input(source))
 
 			if (parsed?.kind === 'success') {
-				const formatted = format({ indentation: 0 }, parsed.parsed)
+				const formatted = format(parsed.parsed)
 				return [TextEdit.replace(new Range(document.positionAt(0), document.positionAt(source.length)), formatted)]
 			}
 

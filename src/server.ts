@@ -22,10 +22,10 @@ import {
 import {
 	TextDocument
 } from 'vscode-languageserver-textdocument'
-import { AST, Expression, TypeExpression, parseModule } from './compiler/parser'
-import { check } from './compiler/checker'
+import { AST, parseModule } from './compiler/parser'
+import { check, scopeFromModule } from './compiler/checker'
 import { getCompletions } from './compiler/completions'
-import { boolean, displayType, inferType, resolveType } from './compiler/types'
+import { Type, displayType, inferType, literal, resolveType } from './compiler/types'
 import { findASTNodeAtPosition } from './compiler/ast-utils'
 import { given } from './compiler/utils'
 
@@ -301,13 +301,19 @@ connection.onHover(async (params) => {
 			try {
 				const selection = findASTNodeAtPosition(document.offsetAt(params.position), result.parsed)
 
-				const type = (
+				const type: Type | undefined = (
 					selection?.kind === 'plain-identifier' && selection.parent?.parent?.kind === 'const-declaration' ? inferType(selection.parent.parent.value) :
 						selection?.kind === 'plain-identifier' && selection.parent?.kind === 'type-declaration' ? resolveType(selection.parent.type) :
-							// @ts-expect-error dsfghjdfgh
-							given(findParentWhere(selection, ast => ast.context === 'expression'), inferType) ??
-							// @ts-expect-error dsfghjdfgh
-							given(findParentWhere(selection, ast => ast.context === 'type-expression'), resolveType)
+							selection?.kind === 'plain-identifier' && selection.parent?.kind === 'name-and-type' && selection.parent.parent?.kind === 'function-expression' ? {
+								kind: 'property-type',
+								subject: {
+									kind: 'parameters-type',
+									subject: inferType(selection.parent.parent),
+								},
+								property: literal(selection.parent.parent.params.indexOf(selection.parent))
+							} :
+								// @ts-expect-error dsfghjdfgh
+								given(findParentWhere(selection, ast => ast.context === 'expression' || ast.context === 'type-expression'), ast => ast.context === 'expression' ? inferType(ast) : resolveType(ast))
 				)
 
 				if (type) {
@@ -315,7 +321,7 @@ connection.onHover(async (params) => {
 						contents: {
 							kind: 'plaintext',
 							language: 'bagel',
-							value: displayType(type)
+							value: displayType({ scope: scopeFromModule(result.parsed) }, type)
 						}
 					}
 				}

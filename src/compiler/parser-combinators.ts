@@ -126,6 +126,14 @@ export const exact = <T extends string>(str: T): Parser<T, never> => profile('ex
 	}
 })
 
+export const endOfFile: Parser<undefined> = ({ code, index }) => {
+	if (index === code.length) {
+		return { kind: 'success', parsed: undefined, input: { code, index }, src: { code, start: index, end: index } }
+	} else {
+		return undefined
+	}
+}
+
 /**
  * If parsed value doesn't match `pred`, convert it to a none-result
  */
@@ -291,7 +299,11 @@ const manySep = (n: number) => <TParsed, TError1, TError2>(item: Parser<TParsed,
 			const sepResult = sep(nextInput)
 
 			if (sepResult == null) {
-				return { kind: 'success', parsed: items, input: nextInput, src: { code: input.code, start: input.index, end: nextInput.index } }
+				if (items.length < n) {
+					return undefined
+				} else {
+					return { kind: 'success', parsed: items, input: nextInput, src: { code: input.code, start: input.index, end: nextInput.index } }
+				}
 			} else if (sepResult.kind === 'error') {
 				return sepResult
 			} else {
@@ -399,6 +411,7 @@ export const takeUntil = (terminator: string) => map(
 	tuple(
 		take0(filter(char, (_, { code, index }) => !code.substring(index).startsWith(terminator))),
 		exact(terminator)
+		// oneOf(exact(terminator), endOfFile)
 	),
 	([content, terminator]) => content + terminator
 )

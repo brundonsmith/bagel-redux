@@ -1,6 +1,6 @@
 import { ParseSource, Parser, Precedence, alphaChar, backtrack, char, exact, filter, input, many0, many1, manySep0, manySep1, manySep2, map, memo, numericChar, oneOf, optional, required, subParser, take0, take1, takeUntil, tuple, whitespace } from './parser-combinators'
 import { ___memo } from './reactivity'
-import { profile } from './utils'
+import { logE, profile } from './utils'
 
 export type ASTInfo = Readonly<{ src: ParseSource, parent?: AST, precedingComments?: Comment[], context?: 'expression' | 'type-expression' }>
 
@@ -23,7 +23,8 @@ export type AST =
 
 export type ModuleAST = {
 	kind: 'module',
-	declarations: Declaration[]
+	declarations: Declaration[],
+	endComments: Comment[]
 } & ASTInfo
 
 export type Declaration =
@@ -62,7 +63,7 @@ export type GenericTypeExpression = Readonly<{ kind: 'generic-type-expression', 
 export type GenericTypeParameter = Readonly<{ kind: 'generic-type-parameter', name: PlainIdentifier, extendz: TypeExpression | undefined } & ASTInfo>
 export type ParameterizedTypeExpression = Readonly<{ kind: 'parameterized-type-expression', inner: TypeExpression, params: TypeExpression[] } & ASTInfo>
 export type ParenthesisTypeExpression = Readonly<{ kind: 'parenthesis', inner: TypeExpression } & ASTInfo>
-export type ObjectTypeExpression = Readonly<{ kind: 'object-literal', entries: Array<Readonly<{ kind: 'key-value', key: TypeExpression, value: TypeExpression } & ASTInfo> | Readonly<{ kind: 'spread', spread: TypeExpression } & ASTInfo>> } & ASTInfo>
+export type ObjectTypeExpression = Readonly<{ kind: 'object-literal', entries: Array<Readonly<{ kind: 'key-value', key: TypeExpression, value: TypeExpression } & ASTInfo> | Readonly<{ kind: 'spread', spread: TypeExpression } & ASTInfo> | LocalIdentifier> } & ASTInfo>
 export type ArrayTypeExpression = Readonly<{ kind: 'array-literal', elements: Array<TypeExpression | Readonly<{ kind: 'spread', spread: TypeExpression } & ASTInfo>> } & ASTInfo>
 export type TypeofTypeExpression = Readonly<{ kind: 'typeof-type-expression', expression: Expression } & ASTInfo>
 export type FunctionTypeExpression = Readonly<{ kind: 'function-type-expression', pure: boolean, params: TypeExpression[], returns: TypeExpression } & ASTInfo>
@@ -90,7 +91,7 @@ export type Expression =
 	| BrokenSubtree
 
 export type ParenthesisExpression = Readonly<{ kind: 'parenthesis', inner: Expression } & ASTInfo>
-export type ObjectExpression = Readonly<{ kind: 'object-literal', entries: Array<Readonly<{ kind: 'key-value', key: Expression, value: Expression } & ASTInfo> | Readonly<{ kind: 'spread', spread: Expression } & ASTInfo>> } & ASTInfo>
+export type ObjectExpression = Readonly<{ kind: 'object-literal', entries: Array<Readonly<{ kind: 'key-value', key: Expression, value: Expression } & ASTInfo> | Readonly<{ kind: 'spread', spread: Expression } & ASTInfo> | LocalIdentifier> } & ASTInfo>
 export type ArrayExpression = Readonly<{ kind: 'array-literal', elements: Array<Expression | Readonly<{ kind: 'spread', spread: Expression } & ASTInfo>> } & ASTInfo>
 export type PropertyAccessExpression = Readonly<{ kind: 'property-access-expression', subject: Expression, property: Expression } & ASTInfo>
 export type AsExpression = Readonly<{ kind: 'as-expression', expression: Expression, type: TypeExpression } & ASTInfo>
@@ -109,7 +110,7 @@ export type LocalIdentifier = Readonly<{ kind: 'local-identifier', identifier: s
 export type Range = Readonly<{ kind: 'range', start: NumberLiteral | undefined, end: NumberLiteral | undefined } & ASTInfo>
 
 export type Parenthesis<T> = Readonly<{ kind: 'parenthesis', inner: T } & ASTInfo>
-export type ObjectLiteral<T> = Readonly<{ kind: 'object-literal', entries: Array<KeyValue<T> | Spread<T>> } & ASTInfo>
+export type ObjectLiteral<T> = Readonly<{ kind: 'object-literal', entries: Array<KeyValue<T> | Spread<T> | LocalIdentifier> } & ASTInfo>
 export type ArrayLiteral<T> = Readonly<{ kind: 'array-literal', elements: Array<T | Spread<T>> } & ASTInfo>
 export type KeyValue<T> = Readonly<{ kind: 'key-value', key: T, value: T } & ASTInfo>
 export type Spread<T> = Readonly<{ kind: 'spread', spread: T } & ASTInfo>
@@ -285,12 +286,13 @@ export const parseModule: BagelParser<ModuleAST> = profile('parseModule', input 
 		tuple(
 			whitespace,
 			many0(preceded(declaration)),
-			whitespace
+			whitespaceAndComments
 		),
-		([_0, declarations, _1], src) => {
+		([_0, declarations, endComments], src) => {
 			const module = {
 				kind: 'module',
 				declarations,
+				endComments,
 				src
 			} as const
 
@@ -522,15 +524,20 @@ const typeofTypeExpression: BagelParser<TypeofTypeExpression> = input => map(
 const functionTypeExpression: BagelParser<FunctionTypeExpression> = input => map(
 	tuple(
 		optionalKeyword('pure'),
+		whitespace,
 		exact('('),
+		whitespace,
 		manySep0(typeExpression(), tuple(whitespace, exact(','), whitespace)),
+		whitespace,
+		optional(exact(',')),
+		whitespace,
 		exact(')'),
 		whitespace,
 		exact('=>'),
 		whitespace,
 		typeExpression()
 	),
-	([pure, _0, params, _1, _2, _3, _4, returns], src) => ({
+	([pure, _0, _1, _2, params, _3, _4, _5, _6, _7, _8, _9, returns], src) => ({
 		kind: 'function-type-expression',
 		pure,
 		params,
@@ -596,8 +603,8 @@ const objectLiteral = <T extends TypeExpression | Expression>(inner: BagelParser
 		tuple(
 			exact('{'),
 			whitespace,
-			manySep0<KeyValue<T> | Spread<T>, string, string>(
-				oneOf(preceded(spread(inner)), preceded(keyValue(inner))),
+			manySep0<KeyValue<T> | Spread<T> | LocalIdentifier, string, string>(
+				oneOf(preceded(spread(inner)), preceded(keyValue(inner)), preceded(localIdentifier)),
 				tuple(whitespace, exact(','), whitespace)
 			),
 			whitespace,
@@ -634,18 +641,6 @@ const arrayLiteral = <T extends TypeExpression | Expression>(inner: BagelParser<
 	),
 	takeUntil(']'),
 	(error, src) => ({ kind: 'broken-subtree', error, src })
-)
-
-const stringTypeExpression: BagelParser<StringTypeExpression> = map(
-	oneOf(
-		map(exact('string'), () => undefined),
-		string
-	),
-	(value, src) => ({
-		kind: 'string-type-expression',
-		value,
-		src
-	} as const)
 )
 
 const numberLiteral: BagelParser<NumberLiteral> = map(
@@ -689,6 +684,14 @@ const range: BagelParser<Range> = map(
 		end,
 		src
 	})
+)
+
+const stringTypeExpression: BagelParser<StringTypeExpression> = map(
+	exact('string'),
+	(_0, src) => ({
+		kind: 'string-type-expression',
+		src
+	} as const)
 )
 
 const numberTypeExpression: BagelParser<NumberTypeExpression> = map(
@@ -750,12 +753,12 @@ const propertyAccessExpression: BagelParser<PropertyAccessExpression> = input =>
 		expression(propertyAccessExpression),
 		many1(
 			oneOf(
-				map(tuple(exact('.'), required(plainIdentifier, () => 'Expected property name')), ([_0, property]) => ({
+				preceded(map(tuple(exact('.'), required(plainIdentifier, () => 'Expected property name')), ([_0, property]) => ({
 					kind: 'string-literal' as const,
 					value: property.identifier,
 					src: property.src
-				})),
-				map(tuple(exact('['), whitespace, required(expression(), () => 'Expected key'), whitespace, expect(']')), ([_0, _1, expression, _2, _3]) => expression)
+				}))),
+				preceded(map(tuple(exact('['), whitespace, required(expression(), () => 'Expected key'), whitespace, expect(']')), ([_0, _1, expression, _2, _3]) => expression))
 			)
 		),
 	),
@@ -802,11 +805,21 @@ const asExpression: BagelParser<AsExpression> = input => map(
 const functionExpression: BagelParser<FunctionExpression> = input => map(
 	tuple(
 		optionalKeyword('pure'),
-		exact('('),
-		whitespace,
-		manySep0(nameAndType, tuple(whitespace, exact(','), whitespace)),
-		whitespace,
-		exact(')'),
+		oneOf(
+			map(plainIdentifier, (name, src) => [{ kind: 'name-and-type' as const, name, type: undefined, src }]),
+			map(
+				tuple(
+					exact('('),
+					whitespace,
+					manySep0(nameAndType, tuple(whitespace, exact(','), whitespace)),
+					whitespace,
+					optional(exact(',')),
+					whitespace,
+					exact(')'),
+				),
+				([_0, _1, params, _2, _3]) => params
+			)
+		),
 		whitespace,
 		optional(
 			map(
@@ -819,8 +832,8 @@ const functionExpression: BagelParser<FunctionExpression> = input => map(
 		whitespace,
 		expression()
 	),
-	([pure, _0, _1, params, _3, _4, _5, returnType, _6, _7, _8, body], src) => ({
-		kind: 'function-expression',
+	([pure, params, _5, returnType, _6, _7, _8, body], src) => ({
+		kind: 'function-expression' as const,
 		pure,
 		params,
 		returnType,
