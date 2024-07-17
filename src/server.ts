@@ -23,7 +23,7 @@ import {
 	TextDocument
 } from 'vscode-languageserver-textdocument'
 import { AST, parseModule } from './compiler/parser'
-import { check, scopeFromModule } from './compiler/checker'
+import { check, typeScopeFromModule, valueScopeFromModule } from './compiler/checker'
 import { getCompletions } from './compiler/completions'
 import { Type, displayType, inferType, literal, resolveType } from './compiler/types'
 import { findASTNodeAtPosition } from './compiler/ast-utils'
@@ -321,7 +321,7 @@ connection.onHover(async (params) => {
 						contents: {
 							kind: 'plaintext',
 							language: 'bagel',
-							value: displayType({ scope: scopeFromModule(result.parsed) }, type)
+							value: displayType({ typeScope: typeScopeFromModule(result.parsed), valueScope: valueScopeFromModule(result.parsed) }, type)
 						}
 					}
 				}

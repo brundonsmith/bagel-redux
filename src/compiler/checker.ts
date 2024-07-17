@@ -1,4 +1,4 @@
-import { AST, Expression, ModuleAST, TypeExpression } from './parser'
+import { AST, Expression, ModuleAST, TypeDeclaration, TypeExpression } from './parser'
 import { ParseSource } from './parser-combinators'
 import { displayType, inferType, resolveValueDeclaration, resolveType, subsumationIssues, subsumes, simplifyType, literal, TypeContext } from './types'
 import { profile } from './utils'
@@ -14,7 +14,7 @@ export type CheckContext = {
 export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): void => {
 	const ch = (ast: AST[] | AST | undefined) => checkInner(ctx, ast)
 
-	const typeContext: TypeContext = { scope: ctx.module ? scopeFromModule(ctx.module) : {} }
+	const typeContext: TypeContext = { typeScope: ctx.module ? typeScopeFromModule(ctx.module) : {}, valueScope: ctx.module ? valueScopeFromModule(ctx.module) : {} }
 
 	if (Array.isArray(ast)) {
 		for (const child of ast) {
@@ -232,15 +232,14 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 							})
 						}
 						break
-					// TODO
-					// case 'type-expression':
-					// 	if (!resolveTypeDeclaration(ast.identifier, ast)) {
-					// 		error({
-					// 			message: `Couldn't find ${ast.identifier}`,
-					// 			src: ast.src
-					// 		})
-					// 	}
-					// 	break
+					case 'type-expression':
+						if (!resolveTypeDeclaration(ast.identifier, ast)) {
+							error({
+								message: `Couldn't find ${ast.identifier}`,
+								src: ast.src
+							})
+						}
+						break
 				}
 
 			} break
@@ -280,12 +279,51 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 	}
 }
 
-export const scopeFromModule = (ast: ModuleAST): TypeContext['scope'] => {
+export const typeScopeFromModule = (ast: ModuleAST): TypeContext['typeScope'] => {
 	return Object.fromEntries(
 		ast.declarations
 			.filter(d => d.kind === 'type-declaration')
 			.map(d => [d.name.identifier, resolveType(d.type)])
 	)
+}
+
+export const valueScopeFromModule = (ast: ModuleAST): TypeContext['valueScope'] => {
+	return Object.fromEntries(
+		ast.declarations
+			.filter(d => d.kind === 'const-declaration')
+			.map(d => [d.declared.name.identifier, inferType(d.value)])
+	)
+}
+
+export const resolveTypeDeclaration = (name: string, at: AST | undefined): TypeDeclaration | undefined =>
+	typeDeclarationsInScope(at).find(decl => {
+		switch (decl.kind) {
+			case 'type-declaration': return decl.name.identifier === name
+		}
+	})
+
+export const typeDeclarationsInScope = (at: AST | undefined): Array<TypeDeclaration> => {
+	if (at == null) {
+		return []
+	}
+
+	const declarationsInParentScopes = typeDeclarationsInScope(at?.parent)
+
+	switch (at?.parent?.kind) {
+		case 'module': {
+			return [
+				...at.parent.declarations
+					.map(d =>
+						d.kind === 'type-declaration'
+							? [d]
+							: [])
+					.flat(),
+				...declarationsInParentScopes
+			]
+		}
+	}
+
+	return declarationsInParentScopes
 }
 
 export const check = profile('check', checkInner)

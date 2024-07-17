@@ -1,5 +1,5 @@
-import { AST, BinaryOperator, ConstDeclaration, Expression, ImportDeclaration, ImportItem, ModuleAST, NameAndType, Spread, TypeDeclaration, TypeExpression, isValidIdentifier } from './parser'
-import { todo, zip, profile, log } from './utils'
+import { AST, BinaryOperator, ConstDeclaration, Expression, ImportItem, NameAndType, Spread, TypeExpression, isValidIdentifier } from './parser'
+import { todo, zip, profile, given } from './utils'
 
 export type Type =
 	| Readonly<{ kind: 'function-type', params: Array<Type | SpreadType>, returns: Type, pure: boolean }>
@@ -17,7 +17,7 @@ export type Type =
 	| IfElseType
 	| Readonly<{ kind: 'switch-type', cases: { condition: Type, outcome: Type }[], defaultCase: Type | undefined }>
 	| InvocationType
-	| Readonly<{ kind: 'named-type', identifier: string, ast: AST }>
+	| Readonly<{ kind: 'named-type', identifier: string }>
 	| Readonly<{ kind: 'generic-type', inner: Type, params: GenericParam[] }>
 	| Readonly<{ kind: 'parameterized-type', inner: Type, params: Type[] }>
 	| PropertyType
@@ -296,7 +296,7 @@ export const resolveType = (typeExpression: TypeExpression): Type => {
 		case 'number-type-expression': return number
 		case 'boolean-type-expression': return boolean
 		case 'nil-literal': return nil
-		case 'local-identifier': return { kind: 'named-type', identifier: typeExpression.identifier, ast: typeExpression }
+		case 'local-identifier': return { kind: 'named-type', identifier: typeExpression.identifier }
 		case 'unknown-type-expression': return unknown
 		case 'broken-subtree': return poisoned
 	}
@@ -307,6 +307,9 @@ type LocalIdentifierDeclaration = ImportItem | ConstDeclaration | NameAndType
 const getExpectedType = (expression: Expression): Type | undefined => {
 	if (expression.parent?.kind === 'const-declaration' && expression.parent.declared.type) {
 		return resolveType(expression.parent.declared.type)
+	}
+	if (expression.parent?.kind === 'function-expression' && expression.parent.returnType) {
+		return resolveType(expression.parent.returnType)
 	}
 }
 
@@ -721,16 +724,6 @@ const getIfElseType = (ctx: TypeContext, { cases, defaultCase }: IfElseType): Ty
 	return defaultCase ?? nil
 }
 
-const getInvocationType = (ctx: TypeContext, { subject: _subject }: InvocationType): Type => {
-	const subject = simplifyType(ctx, _subject)
-
-	if (subject.kind !== 'function-type') {
-		return poisoned
-	} else {
-		return subject.returns
-	}
-}
-
 const compareRanges = (op: '<' | '>' | '<=' | '>=', _left: Range, _right: Range): boolean | undefined => {
 	let left: Range, right: Range
 	if (op === '<' || op === '<=') {
@@ -870,7 +863,8 @@ const getBinaryOperationType = (ctx: TypeContext, { left: _left, op, right: _rig
 }
 
 export type TypeContext = {
-	scope: Record<string, Type>
+	typeScope: Record<string, Type>,
+	valueScope: Record<string, Type>
 }
 
 export const simplifyType = (ctx: TypeContext, type: Type): Type => {
@@ -932,8 +926,38 @@ export const simplifyType = (ctx: TypeContext, type: Type): Type => {
 					: simplify(type.elements)
 			)
 		}
-		case 'if-else-type': return getIfElseType(ctx, type)
-		case 'invocation-type': return getInvocationType(ctx, type)
+		case 'if-else-type': {
+			const defaultCase = given(type.defaultCase, simplify)
+			for (const { condition: _condition, outcome: _outcome } of type.cases) {
+				const condition = simplify(_condition)
+				const outcome = simplify(_outcome)
+
+				if (subsumes(ctx, { to: literal(true), from: condition })) {
+					return outcome
+				} else if (!subsumes(ctx, { to: literal(false), from: condition })) {
+					const allOutcomeTypes = type.cases.map(c => simplify(c.outcome))
+					if (defaultCase) {
+						allOutcomeTypes.push(defaultCase)
+					} else {
+						allOutcomeTypes.push(nil)
+					}
+					return union(...allOutcomeTypes)
+				}
+			}
+
+			return defaultCase ?? nil
+		}
+		case 'invocation-type': {
+			// const argsScope = Object.fromEntries(zip(type.args))
+			// const subject = simplifyType({ ...ctx, valueScope: { ...ctx.valueScope, ...argsScope } }, type.subject)
+			const subject = simplify(type.subject)
+
+			if (subject.kind !== 'function-type') {
+				return poisoned
+			} else {
+				return subject.returns
+			}
+		}
 		case 'binary-operation-type': return getBinaryOperationType(ctx, type)
 		case 'property-type': return getPropertyType(ctx, type) ?? poisoned
 		case 'values-type': return getValuesType(ctx, type)
@@ -941,7 +965,7 @@ export const simplifyType = (ctx: TypeContext, type: Type): Type => {
 		case 'parameters-type': return getParametersType(ctx, type)
 		case 'return-type': return getReturnType(ctx, type)
 		case 'named-type': {
-			const resolved = ctx.scope[type.identifier]
+			const resolved = ctx.typeScope[type.identifier]
 			if (resolved) {
 				return simplify(resolved)
 			} else {
@@ -954,8 +978,9 @@ export const simplifyType = (ctx: TypeContext, type: Type): Type => {
 			if (inner.kind === 'generic-type') {
 				return simplifyType(
 					{
-						scope: {
-							...ctx.scope,
+						...ctx,
+						typeScope: {
+							...ctx.typeScope,
 							...Object.fromEntries(
 								zip(inner.params, type.params, 'truncate')
 									.map(([name, type]) => [name.name, simplify(type)])
@@ -981,7 +1006,7 @@ export const simplifyType = (ctx: TypeContext, type: Type): Type => {
 	}
 }
 
-const basicSubsumationIssueMessage = ({ to, from }: { to: Type, from: Type }) => `Can't assign ${displayType({ scope: {} }, from)} into ${displayType({ scope: {} }, to)}`
+const basicSubsumationIssueMessage = ({ to, from }: { to: Type, from: Type }) => `Can't assign ${displayType({ typeScope: {}, valueScope: {} }, from)} into ${displayType({ typeScope: {}, valueScope: {} }, to)}`
 
 export const displayType = (ctx: TypeContext, type: Type | SpreadType | KeyValueType): string => {
 	const display = (type: Type | SpreadType | KeyValueType) => displayType(ctx, type)

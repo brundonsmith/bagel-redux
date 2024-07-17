@@ -5,6 +5,6 @@ const foo = { prop: 2 }
  * Stuff
  * other
  */
-export const myFn = (x: number) => x * 2
+export const double = (x: number) => x * 2
 
-const other = myFn(foo.prop)
+const other: 4 = double(foo.prop)

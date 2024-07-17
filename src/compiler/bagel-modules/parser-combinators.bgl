@@ -121,3 +121,29 @@ export const nothing: Parser<nil, nil> = input => {
     end: input.index,
   },
 }
+
+
+/**
+ * Parse an exact string
+ */
+
+
+// <T extends string>
+export const exact = (
+  str: T,
+): Parser<T, unknown> => input => 
+  if input.code.substring(input.index).startsWith(
+    str,
+  ) {
+    // const end = input.index + str.length
+{
+      kind: 'success',
+      parsed: str,
+      input: { ...input, index: end },
+      src: {
+        code: input.code,
+        start: input.index,
+        end,
+      },
+    }
+  }

@@ -1,6 +1,6 @@
 import { ParseSource, Parser, Precedence, alphaChar, backtrack, char, exact, filter, input, many0, many1, manySep0, manySep1, manySep2, map, memo, numericChar, oneOf, optional, required, subParser, take0, take1, takeUntil, tuple, whitespace } from './parser-combinators'
 import { ___memo } from './reactivity'
-import { logE, profile } from './utils'
+import { logE, profile, todo } from './utils'
 
 export type ASTInfo = Readonly<{ src: ParseSource, parent?: AST, precedingComments?: Comment[], context?: 'expression' | 'type-expression' }>
 
@@ -136,10 +136,10 @@ const precedenceWithContext = <TParsers extends Parser<ASTInfo, unknown>[]>(
 	for (let i = 0; i < levels.length; i++) {
 		byLevel.set(
 			levels[i]!,
-			profile(context + `(${i})`, map(
+			profile(context + `(${i})`, memo(map(
 				oneOf(...memoLevels.slice(i + 1)),
 				parsed => ({ ...parsed, context })
-			))
+			)))
 		)
 	}
 
@@ -748,44 +748,6 @@ const typeExpression: Precedence<BagelParser<TypeExpression>> = precedenceWithCo
 	localIdentifier,
 )
 
-const propertyAccessExpression: BagelParser<PropertyAccessExpression> = input => map(
-	tuple(
-		expression(propertyAccessExpression),
-		many1(
-			oneOf(
-				preceded(map(tuple(exact('.'), required(plainIdentifier, () => 'Expected property name')), ([_0, property]) => ({
-					kind: 'string-literal' as const,
-					value: property.identifier,
-					src: property.src
-				}))),
-				preceded(map(tuple(exact('['), whitespace, required(expression(), () => 'Expected key'), whitespace, expect(']')), ([_0, _1, expression, _2, _3]) => expression))
-			)
-		),
-	),
-	([subject, [firstProperty, ...rest]], src) => {
-		let current = {
-			kind: 'property-access-expression' as const,
-			subject,
-			property: firstProperty!,
-			src
-		}
-
-		for (const property of rest) {
-			current = {
-				kind: 'property-access-expression' as const,
-				subject: current,
-				property,
-				src: {
-					...property.src,
-					start: property.src.start - 1 // HACK
-				}
-			}
-		}
-
-		return current
-	}
-)(input)
-
 const asExpression: BagelParser<AsExpression> = input => map(
 	tuple(
 		expression(asExpression),
@@ -842,23 +804,88 @@ const functionExpression: BagelParser<FunctionExpression> = input => map(
 	} as const)
 )(input)
 
-const invocation: BagelParser<Invocation> = input => map(
+const propertyAccessInvocationChain: BagelParser<Invocation | PropertyAccessExpression> = input => map(
 	tuple(
-		expression(invocation),
-		exact('('),
-		whitespace,
-		manySep0(expression(), tuple(whitespace, exact(','), whitespace)), // TODO: spreads
-		whitespace,
-		optional(exact(',')),
-		whitespace,
-		exact(')')
+		expression(propertyAccessInvocationChain),
+		many1(
+			// @ts-expect-error dsfjkgh
+			oneOf(
+				map(
+					tuple(
+						exact('('),
+						whitespace,
+						manySep0(expression(), tuple(whitespace, exact(','), whitespace)), // TODO: spreads
+						whitespace,
+						optional(exact(',')),
+						whitespace,
+						exact(')')
+					),
+					([_0, _1, args, _2, _3, _4, _5], src) => ({
+						kind: 'invocation',
+						args,
+						src
+					} as const)
+				),
+				oneOf(
+					preceded(map(
+						tuple(exact('.'), required(plainIdentifier, () => 'Expected property name')),
+						([_0, property], src) => ({
+							kind: 'property-access',
+							property,
+							src
+						} as const)
+					)),
+					preceded(map(
+						tuple(exact('['), whitespace, required(expression(), () => 'Expected key'), whitespace, expect(']')),
+						([_0, _1, property, _2, _3], src) => ({
+							kind: 'property-access',
+							property,
+							src
+						} as const)
+					))
+				)
+			),
+		)
 	),
-	([subject, _0, _1, args, _2, _3], src) => ({
-		kind: 'invocation',
-		subject,
-		args,
-		src
-	} as const)
+	([subject, _applications]) => {
+		const applications = _applications as Array<{ kind: 'invocation', args: Expression[], src: ParseSource } | { kind: 'property-access', property: Expression | PlainIdentifier, src: ParseSource }>
+		const applyToSubject = (subject: Expression, application: (typeof applications)[number]): Invocation | PropertyAccessExpression =>
+			application.kind === 'invocation'
+				? {
+					kind: 'invocation',
+					subject,
+					args: application.args,
+					src: {
+						code: application.src.code,
+						start: subject.src.start,
+						end: application.src.end
+					}
+				}
+				: {
+					kind: 'property-access-expression',
+					subject,
+					property:
+						application.property.kind === 'plain-identifier'
+							? { kind: 'string-literal', value: application.property.identifier, src: application.property.src }
+							: application.property,
+					src: {
+						code: application.src.code,
+						start: subject.src.start,
+						end: application.src.end
+					}
+				}
+
+		const [first, ...rest] = applications
+
+		let current = applyToSubject(subject, first!)
+
+		for (const next of rest) {
+			current = applyToSubject(current, next)
+		}
+
+		return current
+
+	}
 )(input)
 
 const binaryOpPrecedence = (ops: BinaryOperator[]) => {
@@ -895,12 +922,11 @@ const ifElseExpression: BagelParser<IfElseExpression> = input => map(
 					exact('else'),
 					whitespace,
 					exact('{'),
-					whitespace,
-					expression(),
+					preceded(expression()),
 					whitespace,
 					exact('}')
 				),
-				([_0, _1, _2, _3, outcome, _4, _5]) => outcome
+				([_0, _1, _2, outcome, _3, _4]) => outcome
 			)
 		)
 	),
@@ -915,16 +941,14 @@ const ifElseExpression: BagelParser<IfElseExpression> = input => map(
 const ifCase: BagelParser<IfElseExpressionCase> = input => map(
 	tuple(
 		exact('if '), // at least one space
-		whitespace,
-		expression(),
+		preceded(expression()),
 		whitespace,
 		exact('{'),
-		whitespace,
-		expression(),
+		preceded(expression()),
 		whitespace,
 		exact('}'),
 	),
-	([_0, _1, condition, _2, _3, _4, outcome, _5, _6], src) => ({
+	([_0, condition, _1, _2, outcome, _3, _4], src) => ({
 		kind: 'if-else-expression-case',
 		condition,
 		outcome,
@@ -955,7 +979,6 @@ const arrayLiteralExpression = input => arrayLiteral(expression())(input)
 export const expression: Precedence<BagelParser<Expression>> = precedenceWithContext(
 	'expression',
 	asExpression,
-	invocation,
 	fallback,
 	or,
 	and,
@@ -963,7 +986,7 @@ export const expression: Precedence<BagelParser<Expression>> = precedenceWithCon
 	ltgt,
 	plusOrMinus,
 	timesOrDiv,
-	propertyAccessExpression,
+	propertyAccessInvocationChain,
 	ifElseExpression,
 	functionExpression,
 	parenthesisExpression,
