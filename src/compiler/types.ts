@@ -205,7 +205,8 @@ export const declarationType = (ctx: InferTypeContext, declaration: ValueCreator
 
 			return unknown
 		}
-		default: return declaration ?? poisoned
+		case 'raw-named-type': return declaration.type
+		case undefined: return poisoned
 	}
 }
 
@@ -215,15 +216,18 @@ export const resolveValueDeclaration = (ctx: InferTypeContext, name: string, at:
 			case 'import-item': return (decl.alias ?? decl.name).identifier === name
 			case 'const-declaration': return decl.declared.name.identifier === name
 			case 'name-and-type': return decl.name.identifier === name
+			case 'raw-named-type': return decl.name === name
 		}
 	})
 
 export const valueDeclarationsInScope = (ctx: InferTypeContext, at: AST | undefined, from: AST): Array<ValueCreator> => {
 	if (at == null) {
 		return [
-			ctx.platform === 'cross-platform' ? globals.JS :
-				ctx.platform === 'browser' ? globals.JSBrowser :
-					globals.JSNode
+			{
+				kind: 'raw-named-type',
+				name: 'js',
+				type: globalJSType(ctx.platform)
+			}
 		]
 	}
 
@@ -387,7 +391,7 @@ export const resolveType = (ctx: ResolveTypeContext, typeExpression: TypeExpress
 	}
 }
 
-type ValueCreator = ImportItem | ConstDeclaration | NameAndType | Type
+type ValueCreator = ImportItem | ConstDeclaration | NameAndType | { kind: 'raw-named-type', name: string, type: Type }
 
 const getExpectedType = (ctx: ResolveTypeContext, expression: Expression): Type | undefined => {
 	if (expression.parent?.kind === 'const-declaration' && expression.parent.declared.type) {
@@ -1220,3 +1224,8 @@ export const globals = Object.fromEntries(
 			(decl as TypeDeclaration).name.identifier,
 			resolveType({ platform: 'cross-platform' }, (decl as TypeDeclaration).type)
 		])) as Record<'JS' | 'JSNode' | 'JSBrowser', Type>
+
+export const globalJSType = (platform: ModulePlatform): Type =>
+	platform === 'cross-platform' ? globals.JS :
+		platform === 'browser' ? globals.JSBrowser :
+			globals.JSNode

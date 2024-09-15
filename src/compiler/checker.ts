@@ -1,7 +1,7 @@
 import { ModulePlatform } from './cli'
 import { AST, Expression, ModuleAST, span, TypeExpression } from './parser'
 import { ParseSource } from './parser-combinators'
-import { displayType, inferType, resolveValueDeclaration, resolveType, subsumationIssues, subsumes, simplifyType, literal, TypeContext, Type, poisoned, resolveTypeDeclaration, unknown, inferBodyType, ResolveTypeContext, InferTypeContext } from './types'
+import { displayType, inferType, resolveValueDeclaration, resolveType, subsumationIssues, subsumes, simplifyType, literal, TypeContext, Type, poisoned, resolveTypeDeclaration, unknown, inferBodyType, ResolveTypeContext, InferTypeContext, globalJSType } from './types'
 import { given, profile, zip } from './utils'
 
 export type CheckerError = { message: string, src: ParseSource, details?: { message: string, src: ParseSource }[] }
@@ -344,11 +344,14 @@ export const typeScopeFromModule = (ctx: ResolveTypeContext, ast: ModuleAST): Ty
 }
 
 export const valueScopeFromModule = (ctx: InferTypeContext, ast: ModuleAST): TypeContext['valueScope'] => {
-	return Object.fromEntries(
-		ast.declarations
-			.filter(d => d.kind === 'const-declaration')
-			.map(d => [d.declared.name.identifier, inferType(ctx, d.value)])
-	)
+	return {
+		js: globalJSType(ctx.platform),
+		...Object.fromEntries(
+			ast.declarations
+				.filter(d => d.kind === 'const-declaration')
+				.map(d => [d.declared.name.identifier, inferType(ctx, d.value)])
+		)
+	}
 }
 
 export const check = profile('check', checkInner)
