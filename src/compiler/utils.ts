@@ -9,6 +9,8 @@ export const given = <T, R>(val: T | undefined, fn: (val: T) => R): R | undefine
 	}
 }
 
+export const exists = <T>(val: T | null | undefined): val is T => val != null
+
 export function zip<A, B>(arr1: A[], arr2: B[], mode: 'truncate'): Array<[A, B]>;
 export function zip<A, B>(arr1: A[], arr2: B[], mode: 'left'): Array<[A, B | undefined]>;
 export function zip<A, B>(arr1: A[], arr2: B[], mode: 'right'): Array<[A | undefined, B]>;

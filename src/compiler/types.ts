@@ -1,8 +1,12 @@
-import { AST, BinaryOperator, ConstDeclaration, Expression, ImportItem, NameAndType, Spread, TypeExpression, isValidIdentifier } from './parser'
-import { todo, zip, profile, given } from './utils'
+import { readFileSync } from 'fs'
+import { join } from 'path'
+import { ModulePlatform } from './cli'
+import { AST, BinaryOperator, ConstDeclaration, Expression, GenericTypeParameter, ImportItem, NameAndType, Spread, Statement, TypeDeclaration, TypeExpression, isValidIdentifier, parseModule } from './parser'
+import { input } from './parser-combinators'
+import { todo, zip, profile, given, exists } from './utils'
 
 export type Type =
-	| Readonly<{ kind: 'function-type', params: Array<Type | SpreadType>, returns: Type, pure: boolean }>
+	| Readonly<{ kind: 'function-type', params: Array<FunctionParam | SpreadType>, returns: Type, pure: boolean }>
 	| Readonly<{ kind: 'union-type', members: Type[] }>
 	| Readonly<{ kind: 'exclude-type', subject: Type, excluded: Type }>
 	| Readonly<{ kind: 'object-type', entries: Array<KeyValueType | SpreadType> | KeyValueType }>
@@ -20,12 +24,14 @@ export type Type =
 	| Readonly<{ kind: 'named-type', identifier: string }>
 	| Readonly<{ kind: 'generic-type', inner: Type, params: GenericParam[] }>
 	| Readonly<{ kind: 'parameterized-type', inner: Type, params: Type[] }>
+	| Readonly<{ kind: 'local-identifier-type', identifier: string }>
 	| PropertyType
 	| KeysType
 	| ValuesType
 	| ParametersType
 	| ReturnTypez
 
+type FunctionParam = { kind: 'function-param', name: string | undefined, type: Type }
 type GenericParam = { name: string, extendz: Type | undefined }
 type Range = { start: number | undefined, end: number | undefined }
 
@@ -56,61 +62,71 @@ export const poisoned = { kind: 'poisoned-type' } as const
 export type KeyValueType = { kind: 'key-value-type', key: Type, value: Type }
 export type SpreadType = { kind: 'spread', spread: Type }
 
-export const inferType = profile('inferType', (expression: Expression): Type => {
+export type InferTypeContext = {
+	platform: ModulePlatform
+}
+
+export const inferType = profile('inferType', (ctx: InferTypeContext, expression: Expression): Type => {
+	const infer = (expression: Expression) => inferType(ctx, expression)
+
 	switch (expression.kind) {
 		case 'property-access-expression': return {
 			kind: 'property-type',
-			subject: inferType(expression.subject),
-			property: inferType(expression.property)
+			subject: infer(expression.subject),
+			property: infer(expression.property)
 		}
-		case 'as-expression': return resolveType(expression.type)
+		case 'as-expression': return resolveType(ctx, expression.type)
 		case 'function-expression': {
-			const expected = getExpectedType(expression)
+			const expected = getExpectedType(ctx, expression)
 
 			return {
 				kind: 'function-type',
-				params: expression.params.map((a, i) =>
-					a.type ? resolveType(a.type) :
-						expected != null ? {
-							kind: 'property-type',
-							subject: {
-								kind: 'parameters-type',
-								subject: expected,
-							},
-							property: literal(i)
-						} :
-							unknown),
-				returns: inferType(expression.body),
+				params: expression.params.map((a, i) => ({
+					kind: 'function-param' as const,
+					name: a.name.identifier,
+					type:
+						a.type ? resolveType(ctx, a.type)
+							: expected != null ? {
+								kind: 'property-type',
+								subject: {
+									kind: 'parameters-type',
+									subject: expected,
+								},
+								property: literal(i)
+							}
+								: unknown
+				})),
+				returns: inferBodyType(ctx, expression.body),
 				pure: false // TODO
 			}
 		}
-		case 'invocation': return { kind: 'invocation-type', subject: inferType(expression.subject), args: expression.args.map(inferType) }
-		case 'binary-operation-expression': return { kind: 'binary-operation-type', left: inferType(expression.left), op: expression.op, right: inferType(expression.right) }
+		case 'invocation': return { kind: 'invocation-type', subject: infer(expression.subject), args: expression.args.map(infer) }
+		case 'binary-operation-expression': return { kind: 'binary-operation-type', left: infer(expression.left), op: expression.op, right: infer(expression.right) }
 		case 'if-else-expression': return {
 			kind: 'if-else-type',
-			cases: expression.cases.map(({ condition, outcome }) => ({ condition: inferType(condition), outcome: inferType(outcome) })),
-			defaultCase: expression.defaultCase ? inferType(expression.defaultCase) : undefined
+			cases: expression.cases.map(({ condition, outcome }) => ({ condition: infer(condition), outcome: infer(outcome) })),
+			defaultCase: expression.defaultCase ? infer(expression.defaultCase) : undefined
 		}
-		case 'parenthesis': return inferType(expression.inner)
+		case 'parenthesis': return infer(expression.inner)
 		case 'object-literal': return {
 			kind: 'object-type', entries: expression.entries.map(entry =>
-				entry.kind === 'key-value' ? { kind: 'key-value-type', key: inferType(entry.key), value: inferType(entry.value) } :
-					entry.kind === 'spread' ? { kind: 'spread', spread: inferType(entry.spread) } :
-						{ kind: 'key-value-type', key: literal(entry.identifier), value: inferType(entry) }
+				entry.kind === 'key-value' ? { kind: 'key-value-type', key: infer(entry.key), value: infer(entry.value) } :
+					entry.kind === 'spread' ? { kind: 'spread', spread: infer(entry.spread) } :
+						{ kind: 'key-value-type', key: literal(entry.identifier), value: infer(entry) }
 			)
 		}
 		case 'array-literal': return {
 			kind: 'array-type', elements: expression.elements.map(element =>
 				element.kind === 'spread'
-					? { kind: 'spread', spread: inferType(element.spread) } as const
-					: inferType(element)
+					? { kind: 'spread', spread: infer(element.spread) } as const
+					: infer(element)
 			)
 		}
 		case 'string-literal': return { kind: 'string-type', value: expression.value }
 		case 'number-literal': return { kind: 'number-type', value: expression.value }
 		case 'boolean-literal': return { kind: 'boolean-type', value: expression.value }
 		case 'nil-literal': return { kind: 'nil-type' }
-		case 'local-identifier': return declarationType(resolveValueDeclaration(expression.identifier, expression))
+		case 'local-identifier': return { kind: 'local-identifier-type', identifier: expression.identifier }
 		case 'broken-subtree': return poisoned
 		default:
 			// @ts-expect-error kind should be of type `never`
@@ -161,18 +177,18 @@ const opOnRange = (operator: '+' | '-' | '*' | '/', left: Range | number | undef
 	}
 }
 
-const declarationType = (declaration: ReturnType<typeof resolveValueDeclaration>): Type => {
+export const declarationType = (ctx: InferTypeContext, declaration: ValueCreator | undefined): Type => {
 	switch (declaration?.kind) {
 		case 'import-item': return todo()
-		case 'const-declaration': return inferType(declaration.value)
+		case 'const-declaration': return inferType(ctx, declaration.value)
 		case 'name-and-type': {
 			if (declaration.type) {
-				return resolveType(declaration.type)
+				return resolveType(ctx, declaration.type)
 			}
 
 			// declaration is a function parameter
 			if (declaration.parent?.kind === 'function-expression') {
-				const functionType = getExpectedType(declaration.parent)
+				const functionType = getExpectedType(ctx, declaration.parent)
 				const parameterIndex = declaration.parent.params.indexOf(declaration)
 
 				if (functionType) {
@@ -189,12 +205,12 @@ const declarationType = (declaration: ReturnType<typeof resolveValueDeclaration>
 
 			return unknown
 		}
-		case undefined: return poisoned
+		default: return declaration ?? poisoned
 	}
 }
 
-export const resolveValueDeclaration = (name: string, at: AST | undefined): LocalIdentifierDeclaration | undefined =>
-	valueDeclarationsInScope(at).find(decl => {
+export const resolveValueDeclaration = (ctx: InferTypeContext, name: string, at: AST | undefined, from: AST): ValueCreator | undefined =>
+	valueDeclarationsInScope(ctx, at, from).find(decl => {
 		switch (decl.kind) {
 			case 'import-item': return (decl.alias ?? decl.name).identifier === name
 			case 'const-declaration': return decl.declared.name.identifier === name
@@ -202,12 +218,16 @@ export const resolveValueDeclaration = (name: string, at: AST | undefined): Loca
 		}
 	})
 
-export const valueDeclarationsInScope = (at: AST | undefined): Array<LocalIdentifierDeclaration> => {
+export const valueDeclarationsInScope = (ctx: InferTypeContext, at: AST | undefined, from: AST): Array<ValueCreator> => {
 	if (at == null) {
-		return []
+		return [
+			ctx.platform === 'cross-platform' ? globals.JS :
+				ctx.platform === 'browser' ? globals.JSBrowser :
+					globals.JSNode
+		]
 	}
 
-	const declarationsInParentScopes = valueDeclarationsInScope(at?.parent)
+	const declarationsInParentScopes = valueDeclarationsInScope(ctx, at?.parent, at)
 
 	switch (at?.parent?.kind) {
 		case 'module': {
@@ -222,7 +242,18 @@ export const valueDeclarationsInScope = (at: AST | undefined): Array<LocalIdenti
 			]
 		}
 		case 'function-expression': {
+			const bodyStatements = (
+				Array.isArray(at.parent.body)
+					? at.parent.body
+					: []
+			)
+
+			const thisIndex = bodyStatements.indexOf(from as Statement)
+
+			const bodyDeclarations = bodyStatements.slice(0, thisIndex).filter(s => s.kind === 'const-declaration')
+
 			return [
+				...bodyDeclarations,
 				...at.parent.params,
 				...declarationsInParentScopes
 			]
@@ -232,30 +263,84 @@ export const valueDeclarationsInScope = (at: AST | undefined): Array<LocalIdenti
 	return declarationsInParentScopes
 }
 
-export const resolveType = (typeExpression: TypeExpression): Type => {
+type TypeCreator = TypeDeclaration | GenericTypeParameter
+
+export const resolveTypeDeclaration = (name: string, at: AST | undefined): TypeCreator | undefined =>
+	typeDeclarationsInScope(at).find(decl => {
+		switch (decl.kind) {
+			case 'type-declaration': return decl.name.identifier === name
+			case 'generic-type-parameter': return decl.name.identifier === name
+		}
+	})
+
+export const typeDeclarationType = (ctx: ResolveTypeContext, declaration: ReturnType<typeof resolveTypeDeclaration>): Type => {
+	switch (declaration?.kind) {
+		case 'type-declaration': return resolveType(ctx, declaration.type)
+		case 'generic-type-parameter': return given(declaration.extendz, e => resolveType(ctx, e)) ?? unknown
+		case undefined: return poisoned
+	}
+}
+
+const typeDeclarationsInScope = (at: AST | undefined): Array<TypeCreator> => {
+	if (at == null) {
+		return []
+	}
+
+	const declarationsInParentScopes = typeDeclarationsInScope(at?.parent)
+
+	switch (at?.parent?.kind) {
+		case 'module': {
+			return [
+				...declarationsInParentScopes,
+				...at.parent.declarations
+					.map(d =>
+						d.kind === 'type-declaration'
+							? [d]
+							: [])
+					.flat()
+			]
+		}
+		case 'generic-type-expression': {
+			return [
+				...declarationsInParentScopes,
+				...at.parent.params
+			]
+		}
+	}
+
+	return declarationsInParentScopes
+}
+
+export type ResolveTypeContext = {
+	platform: ModulePlatform
+}
+
+export const resolveType = (ctx: ResolveTypeContext, typeExpression: TypeExpression): Type => {
+	const resolve = (typeExpression: TypeExpression) => resolveType(ctx, typeExpression)
+
 	switch (typeExpression.kind) {
-		case 'typeof-type-expression': return inferType(typeExpression.expression)
+		case 'typeof-type-expression': return inferType(ctx, typeExpression.expression)
 		case 'function-type-expression': return {
 			kind: 'function-type',
-			params: typeExpression.params.map(resolveType),
-			returns: resolveType(typeExpression.returns),
+			params: typeExpression.params.map(resolve).map(type => ({ kind: 'function-param', name: undefined, type })),
+			returns: resolve(typeExpression.returns),
 			pure: typeExpression.pure
 		}
 		case 'union-type-expression': return {
 			kind: 'union-type',
-			members: typeExpression.members.map(resolveType)
+			members: typeExpression.members.map(resolve)
 		}
 		case 'generic-type-expression': return {
 			kind: 'generic-type',
-			inner: resolveType(typeExpression.inner),
-			params: typeExpression.params.map(({ name, extendz }) => ({ name: name.identifier, extendz: extendz ? resolveType(extendz) : undefined }))
+			inner: resolve(typeExpression.inner),
+			params: typeExpression.params.map(({ name, extendz }) => ({ name: name.identifier, extendz: given(extendz, resolve) }))
 		}
 		case 'parameterized-type-expression': return {
 			kind: 'parameterized-type',
-			inner: resolveType(typeExpression.inner),
-			params: typeExpression.params.map(resolveType)
+			inner: resolve(typeExpression.inner),
+			params: typeExpression.params.map(resolve)
 		}
-		case 'parenthesis': return resolveType(typeExpression.inner)
+		case 'parenthesis': return resolve(typeExpression.inner)
 		case 'object-literal':
 			return typeExpression.entries.some(e => e.kind === 'local-identifier')
 				? poisoned
@@ -264,8 +349,8 @@ export const resolveType = (typeExpression: TypeExpression): Type => {
 					entries: (
 						typeExpression.entries.map(entry =>
 							entry.kind === 'key-value'
-								? { kind: 'key-value-type', key: resolveType(entry.key), value: resolveType(entry.value) } as const
-								: { kind: 'spread', spread: resolveType((entry as Spread<TypeExpression>).spread) } as const
+								? { kind: 'key-value-type', key: resolve(entry.key), value: resolve(entry.value) } as const
+								: { kind: 'spread', spread: resolve((entry as Spread<TypeExpression>).spread) } as const
 
 						)
 					)
@@ -275,8 +360,8 @@ export const resolveType = (typeExpression: TypeExpression): Type => {
 			elements: (
 				typeExpression.elements.map(element =>
 					element.kind === 'spread'
-						? { kind: 'spread', spread: resolveType(element.spread) } as const
-						: resolveType(element)
+						? { kind: 'spread', spread: resolve(element.spread) } as const
+						: resolve(element)
 				)
 			)
 		}
@@ -302,14 +387,14 @@ export const resolveType = (typeExpression: TypeExpression): Type => {
 	}
 }
 
-type LocalIdentifierDeclaration = ImportItem | ConstDeclaration | NameAndType
+type ValueCreator = ImportItem | ConstDeclaration | NameAndType | Type
 
-const getExpectedType = (expression: Expression): Type | undefined => {
+const getExpectedType = (ctx: ResolveTypeContext, expression: Expression): Type | undefined => {
 	if (expression.parent?.kind === 'const-declaration' && expression.parent.declared.type) {
-		return resolveType(expression.parent.declared.type)
+		return resolveType(ctx, expression.parent.declared.type)
 	}
 	if (expression.parent?.kind === 'function-expression' && expression.parent.returnType) {
-		return resolveType(expression.parent.returnType)
+		return resolveType(ctx, expression.parent.returnType)
 	}
 }
 
@@ -342,6 +427,7 @@ export const subsumationIssues = (ctx: TypeContext, { to: _to, from: _from }: { 
 			}
 		}
 		case 'named-type':
+		case 'local-identifier-type':
 		case 'unknown-type':
 		case 'poisoned-type':
 			return NO_ISSUES
@@ -349,6 +435,7 @@ export const subsumationIssues = (ctx: TypeContext, { to: _to, from: _from }: { 
 	switch (from.kind) {
 		case 'union-type': return todo()
 		case 'named-type':
+		case 'local-identifier-type':
 		case 'poisoned-type':
 			return NO_ISSUES
 	}
@@ -363,7 +450,7 @@ export const subsumationIssues = (ctx: TypeContext, { to: _to, from: _from }: { 
 
 				for (const [toParam, fromParam] of zip(to.params, from.params, 'truncate')) {
 					// swapped on purpose!
-					issues.push(...subsumation({ to: fromParam as Type, from: toParam as Type })) // TODO
+					issues.push(...subsumation({ to: (fromParam as FunctionParam).type, from: (toParam as FunctionParam).type })) // TODO
 				}
 
 				issues.push(...subsumation({ to: to.returns, from: from.returns }))
@@ -684,7 +771,7 @@ const getParametersType = (ctx: TypeContext, { subject: _subject }: ParametersTy
 
 	switch (subject.kind) {
 		case 'function-type': {
-			return { kind: 'array-type', elements: subject.params as Type[] }
+			return { kind: 'array-type', elements: (subject.params as FunctionParam[]).map(p => p.type) }
 		}
 	}
 
@@ -864,24 +951,72 @@ const getBinaryOperationType = (ctx: TypeContext, { left: _left, op, right: _rig
 
 export type TypeContext = {
 	typeScope: Record<string, Type>,
-	valueScope: Record<string, Type>
+	valueScope: Record<string, Type>,
+	preserveGenerics?: boolean,
+	preserveValues?: boolean
 }
 
 export const simplifyType = (ctx: TypeContext, type: Type): Type => {
 	const simplify = (type: Type) => simplifyType(ctx, type)
 
 	switch (type.kind) {
-		case 'function-type':
-			return {
-				kind: 'function-type',
-				pure: type.pure,
-				params: type.params.map(param =>
-					param.kind === 'spread'
-						? { ...param, spread: simplify(param.spread) }
-						: simplify(param)
-				),
-				returns: simplify(type.returns),
+		case 'invocation-type': {
+			const subject = simplifyType({ ...ctx, preserveValues: true }, type.subject)
+
+			if (subject.kind !== 'function-type') {
+				return poisoned
+			} else {
+				const newCtx: TypeContext = {
+					...ctx,
+					valueScope: {
+						...ctx.valueScope,
+						...Object.fromEntries(
+							zip(subject.params, type.args, 'truncate')
+								.map(([param, arg]) =>
+									param.kind === 'spread' || param.name == null
+										? undefined
+										: [(param as FunctionParam).name, simplify(arg)])
+								.filter(exists)
+						)
+					},
+				}
+
+				return simplifyType(newCtx, subject.returns)
 			}
+		}
+		case 'function-type': {
+			const params = type.params.map(param =>
+				param.kind === 'spread'
+					? { ...param, spread: simplify(param.spread) }
+					: { ...param, type: simplify(param.type) }
+			)
+
+			if (ctx.preserveValues) {
+				return {
+					...type,
+					params,
+				}
+			} else {
+				const newCtx: TypeContext = {
+					...ctx,
+					valueScope: {
+						...ctx.valueScope,
+						...Object.fromEntries(type.params
+							.map(p =>
+								p.kind !== 'spread' && p.name != null
+									? [p.name, p.type]
+									: undefined)
+							.filter(exists))
+					},
+				}
+
+				return {
+					...type,
+					params,
+					returns: simplifyType(newCtx, type.returns),
+				}
+			}
+		}
 		case 'union-type':
 			// TODO: collapse subsumed
 
@@ -947,17 +1082,6 @@ export const simplifyType = (ctx: TypeContext, type: Type): Type => {
 
 			return defaultCase ?? nil
 		}
-		case 'invocation-type': {
-			// const argsScope = Object.fromEntries(zip(type.args))
-			// const subject = simplifyType({ ...ctx, valueScope: { ...ctx.valueScope, ...argsScope } }, type.subject)
-			const subject = simplify(type.subject)
-
-			if (subject.kind !== 'function-type') {
-				return poisoned
-			} else {
-				return subject.returns
-			}
-		}
 		case 'binary-operation-type': return getBinaryOperationType(ctx, type)
 		case 'property-type': return getPropertyType(ctx, type) ?? poisoned
 		case 'values-type': return getValuesType(ctx, type)
@@ -972,8 +1096,16 @@ export const simplifyType = (ctx: TypeContext, type: Type): Type => {
 				return type
 			}
 		}
+		case 'local-identifier-type': {
+			const resolved = ctx.valueScope[type.identifier]
+			if (resolved) {
+				return simplify(resolved)
+			} else {
+				return type
+			}
+		}
 		case 'parameterized-type': {
-			const inner = simplify(type.inner)
+			const inner = simplifyType({ ...ctx, preserveGenerics: true }, type.inner)
 
 			if (inner.kind === 'generic-type') {
 				return simplifyType(
@@ -993,7 +1125,25 @@ export const simplifyType = (ctx: TypeContext, type: Type): Type => {
 				return poisoned
 			}
 		}
-		case 'generic-type':
+		case 'generic-type': {
+			if (ctx.preserveGenerics) {
+				return {
+					...type,
+					inner: simplify(type.inner)
+				}
+			} else {
+				const newCtx: TypeContext = {
+					...ctx,
+					typeScope: {
+						...ctx.typeScope,
+						...Object.fromEntries(type.params
+							.map(p => [p.name, p.extendz ?? unknown]))
+					},
+				}
+
+				return simplifyType(newCtx, type.inner)
+			}
+		}
 		case 'exclude-type':
 		case 'string-type':
 		case 'number-type':
@@ -1008,11 +1158,11 @@ export const simplifyType = (ctx: TypeContext, type: Type): Type => {
 
 const basicSubsumationIssueMessage = ({ to, from }: { to: Type, from: Type }) => `Can't assign ${displayType({ typeScope: {}, valueScope: {} }, from)} into ${displayType({ typeScope: {}, valueScope: {} }, to)}`
 
-export const displayType = (ctx: TypeContext, type: Type | SpreadType | KeyValueType): string => {
-	const display = (type: Type | SpreadType | KeyValueType) => displayType(ctx, type)
+export const displayType = (ctx: TypeContext, type: Type | SpreadType | KeyValueType | FunctionParam): string => {
+	const display = (type: Type | SpreadType | KeyValueType | FunctionParam) => displayType(ctx, type)
 
 	const simplified =
-		type.kind === 'spread' || type.kind === 'key-value-type'
+		type.kind === 'spread' || type.kind === 'key-value-type' || type.kind === 'function-param'
 			? type
 			: simplifyType(ctx, type)
 
@@ -1024,6 +1174,7 @@ export const displayType = (ctx: TypeContext, type: Type | SpreadType | KeyValue
 		case 'parameters-type': return `Parameters<${display(simplified.subject)}>`
 		case 'return-type': return `Return<${display(simplified.subject)}>`
 		case 'function-type': return `(${simplified.params.map(display).join(', ')}) => ${display(simplified.returns)}`
+		case 'function-param': return display(simplified.type)
 		case 'union-type': return simplified.members.map(display).join(' | ')
 		case 'exclude-type': return `Exclude<${display(simplified.subject)}, ${display(simplified.excluded)}>`
 		case 'object-type': return `{ ${Array.isArray(simplified.entries)
@@ -1043,9 +1194,29 @@ export const displayType = (ctx: TypeContext, type: Type | SpreadType | KeyValue
 		case 'if-else-type': return simplified.cases.map(({ condition, outcome }) => `if ${display(condition)} { ${display(outcome)} }`).join(' else ') + (simplified.defaultCase ? ` else { ${display(simplified.defaultCase)} }` : '')
 		case 'switch-type': return todo()
 		case 'invocation-type': return `${display(simplified.subject)}(${simplified.args.map(display).join(', ')})`
-		case 'named-type': return simplified.identifier
+		case 'named-type':
+		case 'local-identifier-type':
+			return simplified.identifier
 		case 'nil-type': return 'nil'
 		case 'unknown-type': return 'unknown'
 		case 'poisoned-type': return 'unknown'
 	}
 }
+
+export const inferBodyType = (ctx: InferTypeContext, body: Expression | Statement[]): Type => {
+	if (Array.isArray(body)) {
+		return nil // TODO
+	} else {
+		return inferType(ctx, body)
+	}
+}
+
+const globalsResult = parseModule(input(readFileSync(join(__dirname, '../../src/compiler/bagel-modules/lib', 'globals.bgl')).toString('utf-8')))
+if (globalsResult?.kind !== 'success') throw Error()
+
+export const globals = Object.fromEntries(
+	globalsResult.parsed.declarations.map(decl =>
+		[
+			(decl as TypeDeclaration).name.identifier,
+			resolveType({ platform: 'cross-platform' }, (decl as TypeDeclaration).type)
+		])) as Record<'JS' | 'JSNode' | 'JSBrowser', Type>

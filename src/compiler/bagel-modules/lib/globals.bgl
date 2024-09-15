@@ -1,0 +1,5 @@
+export type JS = { console: { log: (unknown) => nil } }
+
+export type JSNode = { ...JS }
+
+export type JSBrowser = { ...JS }

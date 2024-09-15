@@ -13,11 +13,11 @@ export const bundle = ({ modules }: BundlerOptions): string => {
 
 	const transpiled = modules.map(m => transpile(
 		{
-			outputTypes: true,
+			outputTypes: false,
 			minify: false,
 			testMode: false
 		},
 		m.ast
 	))
-	return transpiled.join('\n') // naive for now
+	return transpiled.join('\n') + '\n\nmain()' // naive for now
 }

@@ -44,7 +44,15 @@ export const format = (ast: AST, { indentation, multiline }: FormatContext = { i
 
 	const comments = ast.precedingComments?.map(f).join('\n\n') ?? ''
 
-	const commaSeparated = (ast: AST[]) => `${multiline ? '\n' : ''}${ast.map((e, i) => multiline ? `${nextIndent}${fi(e)},\n` : ((i > 0 ? ', ' : '') + f(e))).join('')}${multiline ? indent : ''}`
+	const commaSeparated = (ast: AST[]) => {
+		const singleLine = `${ast.map((e, i) => (i > 0 ? ', ' : '') + f(e)).join('')}`
+
+		if (singleLine.length <= maxLineWidth) {
+			return singleLine
+		} else {
+			return `\n${ast.map(e => `${nextIndent}${fi(e)},\n`).join('')}${indent}`
+		}
+	}
 
 	switch (ast.kind) {
 		case 'module': {
@@ -86,11 +94,15 @@ export const format = (ast: AST, { indentation, multiline }: FormatContext = { i
 			? `.${ast.property.value}`
 			: `[${f(ast.property)}]`}`
 		case 'as-expression': return comments + `${f(ast.expression)} as ${f(ast.type)}`
-		case 'function-expression': return comments + (
-			ast.params.length === 1 && ast.params[0]?.type == null && ast.returnType == null
-				? `${ast.params[0]!.name.identifier} => ${f(ast.body)}`
-				: `(${commaSeparated(ast.params)})${ast.returnType ? `: ${f(ast.returnType)}` : ''} => ${f(ast.body)}`
-		)
+		case 'function-expression': {
+			const body = Array.isArray(ast.body) ? '{\n' + ast.body.map(s => nextIndent + fi(s)).join('\n') + '\n}' : f(ast.body)
+
+			return comments + (
+				ast.params.length === 1 && ast.params[0]?.type == null && ast.returnType == null
+					? `${ast.params[0]!.name.identifier} => ${body}`
+					: `(${commaSeparated(ast.params)})${ast.returnType ? `: ${f(ast.returnType)}` : ''} => ${body}`
+			)
+		}
 		case 'name-and-type': return comments + f(ast.name) + (ast.type ? `: ${f(ast.type)}` : '')
 		case 'invocation': return comments + `${f(ast.subject)}(${commaSeparated(ast.args)})`
 		case 'binary-operation-expression': return comments + `${f(ast.left)} ${ast.op} ${f(ast.right)}`

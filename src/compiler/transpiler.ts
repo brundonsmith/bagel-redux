@@ -39,10 +39,18 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 		case 'number-type-expression': return comments + 'number'
 		case 'boolean-type-expression': return comments + 'boolean'
 		case 'unknown-type-expression': return comments + 'unknown'
-		case 'property-access-expression': return comments + `${trans(ast.subject)}[${trans(ast.property)}]`
+		case 'property-access-expression':
+			return comments + (
+				ast.subject.kind === 'local-identifier' && ast.subject.identifier === 'js' && ast.property.kind === 'string-literal'
+					? `global.${ast.property.value}`
+					: `${trans(ast.subject)}[${trans(ast.property)}]`
+			)
 		case 'as-expression': return comments + `${trans(ast.expression)} as ${trans(ast.type)}`
-		case 'function-expression': return comments + `(${ast.params.map(trans).join(', ')})${ast.returnType ? `: ${trans(ast.returnType)}` : ''} => ${trans(ast.body)}`
-		case 'name-and-type': return comments + trans(ast.name) + (ast.type ? `: ${trans(ast.type)}` : '')
+		case 'function-expression':
+			return comments + `(${ast.params.map(trans).join(', ')})${ast.returnType && ctx.outputTypes ? `: ${trans(ast.returnType)}` : ''} => ${Array.isArray(ast.body)
+				? '{\n' + ast.body.map(trans).join('\n') + '\n}'
+				: trans(ast.body)}`
+		case 'name-and-type': return comments + trans(ast.name) + (ast.type && ctx.outputTypes ? `: ${trans(ast.type)}` : '')
 		case 'invocation': return comments + `${trans(ast.subject)}(${ast.args.map(trans).join(', ')})`
 		case 'binary-operation-expression': return comments + `${trans(ast.left)} ${ast.op} ${trans(ast.right)}`
 		case 'if-else-expression': return comments + `${ast.cases.map(trans).join('')} ${ast.defaultCase ? trans(ast.defaultCase) : NIL}`

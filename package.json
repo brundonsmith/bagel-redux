@@ -67,6 +67,7 @@
 		"bgl-check": "npm run compile && node out/compiler/cli.js check",
 		"bgl-transpile": "npm run compile && node out/compiler/cli.js transpile",
 		"bgl-bundle": "npm run compile && node out/compiler/cli.js bundle",
+		"bgl-run": "npm run compile && node out/compiler/cli.js run",
 		"bgl-format": "npm run compile && node out/compiler/cli.js format"
 	},
 	"dependencies": {

@@ -1,20 +1,24 @@
-import { AST, Expression, ModuleAST, TypeDeclaration, TypeExpression } from './parser'
+import { ModulePlatform } from './cli'
+import { AST, Expression, ModuleAST, span, TypeExpression } from './parser'
 import { ParseSource } from './parser-combinators'
-import { displayType, inferType, resolveValueDeclaration, resolveType, subsumationIssues, subsumes, simplifyType, literal, TypeContext } from './types'
-import { profile } from './utils'
+import { displayType, inferType, resolveValueDeclaration, resolveType, subsumationIssues, subsumes, simplifyType, literal, TypeContext, Type, poisoned, resolveTypeDeclaration, unknown, inferBodyType, ResolveTypeContext, InferTypeContext } from './types'
+import { given, profile, zip } from './utils'
 
 export type CheckerError = { message: string, src: ParseSource, details?: { message: string, src: ParseSource }[] }
 
 // TODO: Warning-level issues
 export type CheckContext = {
-	module?: ModuleAST,
-	error: (err: CheckerError) => void
+	error: (err: CheckerError) => void,
+	platform: ModulePlatform,
+	typeContext?: TypeContext
 }
 
 export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): void => {
-	const ch = (ast: AST[] | AST | undefined) => checkInner(ctx, ast)
+	const typeContext = ctx.typeContext as TypeContext
 
-	const typeContext: TypeContext = { typeScope: ctx.module ? typeScopeFromModule(ctx.module) : {}, valueScope: ctx.module ? valueScopeFromModule(ctx.module) : {} }
+	const ch = (ast: AST[] | AST | undefined) => checkInner(ctx, ast)
+	const infer = (expression: Expression) => inferType(ctx, expression)
+	const resolve = (expression: TypeExpression) => resolveType(ctx, expression)
 
 	if (Array.isArray(ast)) {
 		for (const child of ast) {
@@ -25,7 +29,7 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 
 		const checkAssignment = (destination: TypeExpression | undefined, value: Expression) => {
 			if (destination != null) {
-				const [firstIssue, ...rest] = subsumationIssues(typeContext, { to: resolveType(destination), from: inferType(value) })
+				const [firstIssue, ...rest] = subsumationIssues(typeContext, { to: resolve(destination), from: infer(value) })
 
 				if (firstIssue) {
 					error({
@@ -39,7 +43,15 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 
 		switch (ast.kind) {
 			case 'module': {
-				checkInner({ ...ctx, module: ast }, ast.declarations)
+				const newCtx: CheckContext = {
+					...ctx,
+					typeContext: {
+						typeScope: typeScopeFromModule(ctx, ast),
+						valueScope: valueScopeFromModule(ctx, ast)
+					}
+				}
+
+				checkInner(newCtx, ast.declarations)
 			} break
 			case 'import-declaration': {
 				ch(ast.uri)
@@ -69,8 +81,8 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 				ch(ast.members)
 			} break
 			case 'property-access-expression': {
-				const subjectType = inferType(ast.subject)
-				const propertyType = inferType(ast.property)
+				const subjectType = infer(ast.subject)
+				const propertyType = infer(ast.property)
 				if (subjectType.kind !== 'poisoned-type' && !subsumes(typeContext, { to: { kind: 'keys-type', subject: subjectType }, from: propertyType })) {
 					if (propertyType.kind === 'string-type' && propertyType.value != null) {
 						error({
@@ -89,8 +101,8 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 				ch(ast.property)
 			} break
 			case 'as-expression': {
-				const expressionType = inferType(ast.expression)
-				const castType = resolveType(ast.type)
+				const expressionType = infer(ast.expression)
+				const castType = resolve(ast.type)
 				const issues = subsumationIssues(typeContext, { to: castType, from: expressionType })
 				if (issues.length > 0) {
 					error({
@@ -107,28 +119,46 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 				// TODO: Lots of stuff
 
 				if (ast.returnType) {
-					const returnType = resolveType(ast.returnType)
-					const bodyType = inferType(ast.body)
+					const returnType = resolve(ast.returnType)
+					const bodyType = inferBodyType(ctx, ast.body)
 					const issues = subsumationIssues(typeContext, { to: returnType, from: bodyType })
 					if (issues.length > 0) {
+						const bodySrc = Array.isArray(ast.body) ? span(...ast.body.map(s => s.src)) : ast.body.src
 						error({
 							message: `Expected return type of ${displayType(typeContext, returnType)}, but found ${displayType(typeContext, bodyType)}`,
-							src: ast.body.src,
-							details: issues.map(issue => ({ message: issue, src: ast.body.src }))
+							src: bodySrc,
+							details: issues.map(issue => ({
+								message: issue,
+								src: bodySrc
+							}))
 						})
 					}
 				}
 
 				ch(ast.params)
 				ch(ast.returnType)
-				ch(ast.body)
+
+				const newCtx: CheckContext = {
+					...ctx,
+					typeContext: {
+						typeScope: ctx.typeContext?.typeScope ?? {},
+						valueScope: {
+							...ctx.typeContext?.valueScope,
+							...Object.fromEntries(
+								ast.params.map(p => [p.name.identifier, given(p.type, resolve) ?? unknown])
+							)
+						}
+					}
+				}
+
+				checkInner(newCtx, ast.body)
 			} break
 			case 'name-and-type': {
 				ch(ast.name)
 				ch(ast.type)
 			} break
 			case 'invocation': {
-				const subjectType = inferType(ast.subject)
+				const subjectType = simplifyType(typeContext, infer(ast.subject))
 
 				if (subjectType.kind !== 'function-type') {
 					// TODO: Move this into subsumation logic
@@ -138,7 +168,7 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 					})
 				} else {
 					const parametersType = { kind: 'parameters-type' as const, subject: subjectType }
-					const argumentsType = { kind: 'array-type' as const, elements: ast.args.map(inferType) }
+					const argumentsType = { kind: 'array-type' as const, elements: ast.args.map(infer) }
 					const argumentIssues = subsumationIssues(typeContext, { to: parametersType, from: argumentsType })
 					if (argumentIssues.length > 0) {
 						error({
@@ -153,10 +183,10 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 				ch(ast.args)
 			} break
 			case 'binary-operation-expression': {
-				const resultType = simplifyType(typeContext, inferType(ast))
+				const resultType = simplifyType(typeContext, infer(ast))
 				if (resultType.kind === 'poisoned-type') {
-					const leftType = inferType(ast.left)
-					const rightType = inferType(ast.right)
+					const leftType = infer(ast.left)
+					const rightType = infer(ast.right)
 					error({
 						message: `Can't apply operator ${ast.op} to operands ${displayType(typeContext, leftType)} and ${displayType(typeContext, rightType)}`,
 						src: ast.src
@@ -174,7 +204,7 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 					const vals = [true, false] as const
 
 					for (const val of vals) {
-						if (subsumes(typeContext, { to: literal(val), from: inferType(condition) })) {
+						if (subsumes(typeContext, { to: literal(val), from: infer(condition) })) {
 							error({
 								message: `Condition will always be ${val}, so this conditional is redundant`,
 								src: condition.src
@@ -225,7 +255,7 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 			case 'local-identifier': {
 				switch (ast.context) {
 					case 'expression':
-						if (!resolveValueDeclaration(ast.identifier, ast)) {
+						if (!resolveValueDeclaration(ctx, ast.identifier, ast, ast)) {
 							error({
 								message: `Couldn't find ${ast.identifier}`,
 								src: ast.src
@@ -246,10 +276,36 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 			case 'parenthesis': {
 				ch(ast.inner)
 			} break
-			case 'generic-type-expression':
+			case 'generic-type-expression': {
+				ch(ast.inner)
+				ch(ast.params)
+			} break
 			case 'parameterized-type-expression': {
 				ch(ast.inner)
 				ch(ast.params)
+
+				const innerType = simplifyType({ ...typeContext, preserveGenerics: true }, resolve(ast.inner))
+
+				if (innerType.kind !== 'generic-type') {
+					error({
+						message: `Can't parameterize non-generic type ${displayType(typeContext, innerType)}`,
+						src: ast.src
+					})
+				} else {
+					// TODO: Check for too many or too few parameters
+					for (const [arg, param] of zip(ast.params, innerType.params, 'truncate')) {
+						if (param.extendz) {
+							const issues = subsumationIssues(typeContext, { to: param.extendz, from: resolve(arg) })
+							if (issues.length > 0) {
+								error({
+									message: `Can't parameterize generic type ${displayType({ ...typeContext, preserveGenerics: true }, innerType)} with provided types`,
+									src: ast.src,
+									details: issues.map(issue => ({ message: issue, src: ast.src }))
+								})
+							}
+						}
+					}
+				}
 			} break
 			case 'generic-type-parameter': {
 				ch(ast.name)
@@ -279,51 +335,20 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 	}
 }
 
-export const typeScopeFromModule = (ast: ModuleAST): TypeContext['typeScope'] => {
+export const typeScopeFromModule = (ctx: ResolveTypeContext, ast: ModuleAST): TypeContext['typeScope'] => {
 	return Object.fromEntries(
 		ast.declarations
 			.filter(d => d.kind === 'type-declaration')
-			.map(d => [d.name.identifier, resolveType(d.type)])
+			.map(d => [d.name.identifier, resolveType(ctx, d.type)])
 	)
 }
 
-export const valueScopeFromModule = (ast: ModuleAST): TypeContext['valueScope'] => {
+export const valueScopeFromModule = (ctx: InferTypeContext, ast: ModuleAST): TypeContext['valueScope'] => {
 	return Object.fromEntries(
 		ast.declarations
 			.filter(d => d.kind === 'const-declaration')
-			.map(d => [d.declared.name.identifier, inferType(d.value)])
+			.map(d => [d.declared.name.identifier, inferType(ctx, d.value)])
 	)
-}
-
-export const resolveTypeDeclaration = (name: string, at: AST | undefined): TypeDeclaration | undefined =>
-	typeDeclarationsInScope(at).find(decl => {
-		switch (decl.kind) {
-			case 'type-declaration': return decl.name.identifier === name
-		}
-	})
-
-export const typeDeclarationsInScope = (at: AST | undefined): Array<TypeDeclaration> => {
-	if (at == null) {
-		return []
-	}
-
-	const declarationsInParentScopes = typeDeclarationsInScope(at?.parent)
-
-	switch (at?.parent?.kind) {
-		case 'module': {
-			return [
-				...at.parent.declarations
-					.map(d =>
-						d.kind === 'type-declaration'
-							? [d]
-							: [])
-					.flat(),
-				...declarationsInParentScopes
-			]
-		}
-	}
-
-	return declarationsInParentScopes
 }
 
 export const check = profile('check', checkInner)

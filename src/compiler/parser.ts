@@ -1,4 +1,4 @@
-import { ParseSource, Parser, Precedence, alphaChar, backtrack, char, exact, filter, input, many0, many1, manySep0, manySep1, manySep2, map, memo, numericChar, oneOf, optional, required, subParser, take0, take1, takeUntil, tuple, whitespace } from './parser-combinators'
+import { ParseSource, Parser, Precedence, alphaChar, backtrack, char, drop, exact, filter, input, many0, many1, manySep0, manySep1, manySep2, map, memo, numericChar, oneOf, optional, required, subParser, take0, take1, takeUntil, tuple, whitespace } from './parser-combinators'
 import { ___memo } from './reactivity'
 import { logE, profile, todo } from './utils'
 
@@ -13,6 +13,7 @@ export type AST =
 	| Expression
 	| KeyValue<Expression>
 	| Spread<Expression>
+	| Statement
 	| ImportItem
 	| IfElseExpressionCase
 	| NameAndType
@@ -95,7 +96,7 @@ export type ObjectExpression = Readonly<{ kind: 'object-literal', entries: Array
 export type ArrayExpression = Readonly<{ kind: 'array-literal', elements: Array<Expression | Readonly<{ kind: 'spread', spread: Expression } & ASTInfo>> } & ASTInfo>
 export type PropertyAccessExpression = Readonly<{ kind: 'property-access-expression', subject: Expression, property: Expression } & ASTInfo>
 export type AsExpression = Readonly<{ kind: 'as-expression', expression: Expression, type: TypeExpression } & ASTInfo>
-export type FunctionExpression = Readonly<{ kind: 'function-expression', pure: boolean, params: NameAndType[], returnType: TypeExpression | undefined, body: Expression } & ASTInfo>
+export type FunctionExpression = Readonly<{ kind: 'function-expression', pure: boolean, params: NameAndType[], returnType: TypeExpression | undefined, body: Expression | Statement[] } & ASTInfo>
 export type NameAndType = Readonly<{ kind: 'name-and-type', name: PlainIdentifier, type: TypeExpression | undefined } & ASTInfo>
 export type Invocation = Readonly<{ kind: 'invocation', subject: Expression, args: Expression[] } & ASTInfo>
 export type BinaryOperationExpression = Readonly<{ kind: 'binary-operation-expression', left: Expression, op: BinaryOperator, right: Expression } & ASTInfo>
@@ -114,6 +115,10 @@ export type ObjectLiteral<T> = Readonly<{ kind: 'object-literal', entries: Array
 export type ArrayLiteral<T> = Readonly<{ kind: 'array-literal', elements: Array<T | Spread<T>> } & ASTInfo>
 export type KeyValue<T> = Readonly<{ kind: 'key-value', key: T, value: T } & ASTInfo>
 export type Spread<T> = Readonly<{ kind: 'spread', spread: T } & ASTInfo>
+
+export type Statement =
+	| Invocation
+	| ConstDeclaration
 
 export type PlainIdentifier = Readonly<{ kind: 'plain-identifier', identifier: string } & ASTInfo>
 
@@ -211,6 +216,20 @@ const whitespaceAndComments: BagelParser<Comment[]> = map(
 			whitespace
 		),
 		whitespace
+	),
+	([_0, comments, _1]) => comments
+)
+
+const whitespaceNoLinebreak: Parser<undefined> = profile('whitespace', drop(take0(filter(char, ch => ch === ' ' || ch === '\t'))))
+
+const whitespaceAndCommentsNoLinebreak: BagelParser<Comment[]> = map(
+	tuple(
+		whitespaceNoLinebreak,
+		manySep0(
+			oneOf(linesComment, blockComment),
+			whitespaceNoLinebreak
+		),
+		whitespaceNoLinebreak
 	),
 	([_0, comments, _1]) => comments
 )
@@ -792,7 +811,21 @@ const functionExpression: BagelParser<FunctionExpression> = input => map(
 		whitespace,
 		exact('=>'),
 		whitespace,
-		expression()
+		oneOf(
+			map(
+				tuple(
+					exact('{'),
+					manySep1(
+						preceded(statement),
+						tuple(whitespaceAndCommentsNoLinebreak, exact('\n'))
+					),
+					whitespaceAndComments,
+					exact('}'),
+				),
+				([_0, statements, _2, _3]) => statements
+			),
+			expression(),
+		)
 	),
 	([pure, params, _5, returnType, _6, _7, _8, body], src) => ({
 		kind: 'function-expression' as const,
@@ -802,6 +835,11 @@ const functionExpression: BagelParser<FunctionExpression> = input => map(
 		body,
 		src
 	} as const)
+)(input)
+
+const statement: BagelParser<Statement> = input => oneOf(
+	filter(propertyAccessInvocationChain, parsed => parsed.kind === 'invocation') as BagelParser<Invocation>,
+	constDeclaration
 )(input)
 
 const propertyAccessInvocationChain: BagelParser<Invocation | PropertyAccessExpression> = input => map(
@@ -1015,5 +1053,43 @@ const parentChildren = (ast: AST) => {
 				parentChildren(value)
 			}
 		}
+	}
+}
+
+export const methodInvocationToInvocation = (ast: Invocation): Invocation => {
+	if (ast.subject.kind !== 'property-access-expression' || ast.subject.property.kind !== 'string-literal') {
+		return ast
+	}
+
+	const functionName = ast.subject.property.value
+
+	return {
+		...ast,
+		subject: { ...ast.subject.property, kind: 'local-identifier', identifier: functionName },
+		args: [ast.subject.subject, ...ast.args]
+	}
+}
+
+export const span = (...s: ParseSource[]): ParseSource => {
+	const [first, ...rest] = s
+	if (first == null) throw Error('No sources passed to span()')
+
+	const code = first.code
+	let start = first.start
+	let end = first.end
+
+	for (const src of rest) {
+		start = Math.min(start, src.start)
+		end = Math.max(end, src.end)
+
+		if (src.code !== code) {
+			throw Error('Sources from different modules passed together to span()')
+		}
+	}
+
+	return {
+		code,
+		start,
+		end
 	}
 }

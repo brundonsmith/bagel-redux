@@ -25,7 +25,7 @@ import {
 import { AST, parseModule } from './compiler/parser'
 import { check, typeScopeFromModule, valueScopeFromModule } from './compiler/checker'
 import { getCompletions } from './compiler/completions'
-import { Type, displayType, inferType, literal, resolveType } from './compiler/types'
+import { Type, declarationType, displayType, inferType, literal, resolveType, resolveTypeDeclaration, resolveValueDeclaration, typeDeclarationType } from './compiler/types'
 import { findASTNodeAtPosition } from './compiler/ast-utils'
 import { given } from './compiler/utils'
 
@@ -201,7 +201,8 @@ async function validateTextDocument(textDocument: TextDocument): Promise<Diagnos
 								}
 							},
 						}))
-					})
+					}),
+					platform: 'cross-platform' // TODO
 				},
 				parsed.parsed
 			)
@@ -296,24 +297,28 @@ connection.onHover(async (params) => {
 	if (document !== undefined) {
 		const result = parseModule({ code: document.getText(), index: 0 })
 
+		const ctx = { platform: 'cross-platform' } as const // TODO
+
 		if (result?.kind === 'success') {
 
 			try {
 				const selection = findASTNodeAtPosition(document.offsetAt(params.position), result.parsed)
 
 				const type: Type | undefined = (
-					selection?.kind === 'plain-identifier' && selection.parent?.parent?.kind === 'const-declaration' ? inferType(selection.parent.parent.value) :
-						selection?.kind === 'plain-identifier' && selection.parent?.kind === 'type-declaration' ? resolveType(selection.parent.type) :
-							selection?.kind === 'plain-identifier' && selection.parent?.kind === 'name-and-type' && selection.parent.parent?.kind === 'function-expression' ? {
-								kind: 'property-type',
-								subject: {
-									kind: 'parameters-type',
-									subject: inferType(selection.parent.parent),
-								},
-								property: literal(selection.parent.parent.params.indexOf(selection.parent))
-							} :
-								// @ts-expect-error dsfghjdfgh
-								given(findParentWhere(selection, ast => ast.context === 'expression' || ast.context === 'type-expression'), ast => ast.context === 'expression' ? inferType(ast) : resolveType(ast))
+					selection?.kind === 'plain-identifier' && selection.parent?.parent?.kind === 'const-declaration' ? inferType(ctx, selection.parent.parent.value) :
+						selection?.kind === 'plain-identifier' && selection.parent?.kind === 'type-declaration' ? resolveType(ctx, selection.parent.type) :
+							selection?.kind === 'local-identifier' && selection.context === 'expression' ? declarationType(ctx, resolveValueDeclaration(ctx, selection.identifier, selection, selection)) :
+								selection?.kind === 'local-identifier' && selection.context === 'type-expression' ? typeDeclarationType(ctx, resolveTypeDeclaration(selection.identifier, selection)) :
+									selection?.kind === 'plain-identifier' && selection.parent?.kind === 'name-and-type' && selection.parent.parent?.kind === 'function-expression' ? {
+										kind: 'property-type',
+										subject: {
+											kind: 'parameters-type',
+											subject: inferType(ctx, selection.parent.parent),
+										},
+										property: literal(selection.parent.parent.params.indexOf(selection.parent))
+									} :
+										// @ts-expect-error dsfghjdfgh
+										given(findParentWhere(selection, ast => ast.context === 'expression' || ast.context === 'type-expression'), ast => ast.context === 'expression' ? inferType(ast) : resolveType(ast))
 				)
 
 				if (type) {
@@ -321,7 +326,7 @@ connection.onHover(async (params) => {
 						contents: {
 							kind: 'plaintext',
 							language: 'bagel',
-							value: displayType({ typeScope: typeScopeFromModule(result.parsed), valueScope: valueScopeFromModule(result.parsed) }, type)
+							value: displayType({ typeScope: typeScopeFromModule(ctx, result.parsed), valueScope: valueScopeFromModule(ctx, result.parsed) }, type)
 						}
 					}
 				}
