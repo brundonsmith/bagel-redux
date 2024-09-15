@@ -114,27 +114,27 @@ const bundleModule = async (entry: string): Promise<string | undefined> => {
 	}
 }
 
-const bundleFrom = async (entry: string) => {
+const bundleFrom = async (entry: string, inCachePath?: boolean) => {
 	const bundled = await bundleModule(entry)
 
 	if (bundled != null) {
-		await writeFile(entry + '.bundle.js', bundled)
+		const bundlePath = (
+			inCachePath
+				? moduleCachePath(entry) + '.bundle.js'
+				: entry + '.bundle.js'
+		)
+
+		await writeFile(bundlePath, bundled)
+
+		return bundlePath
 	} else {
-		console.log('Failed to parse ' + entry)
+		throw Error('Failed to parse ' + entry)
 	}
 }
 
 const bundleAndRun = async (entry: string) => {
-	const bundled = await bundleModule(entry)
-
-	if (bundled != null) {
-		const cachePath = moduleCachePath(entry)
-		await writeFile(cachePath, bundled)
-
-		spawn('node', [cachePath], { stdio: 'inherit' })
-	} else {
-		console.log('Failed to parse ' + entry)
-	}
+	const bundlePath = await bundleFrom(entry, true)
+	spawn('node', [bundlePath], { stdio: 'inherit' })
 }
 
 const formatAll = async (dir: string) => {
