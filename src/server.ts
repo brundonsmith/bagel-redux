@@ -25,9 +25,12 @@ import {
 import { AST, parseModule } from './compiler/parser'
 import { check, typeScopeFromModule, valueScopeFromModule } from './compiler/checker'
 import { getCompletions } from './compiler/completions'
-import { Type, declarationType, displayType, inferType, literal, resolveType, resolveTypeDeclaration, resolveValueDeclaration, typeDeclarationType } from './compiler/types'
+import { InferTypeContext, Type, declarationType, displayType, inferType, literal, resolveType, resolveTypeDeclaration, resolveValueDeclaration, typeDeclarationType } from './compiler/types'
 import { findASTNodeAtPosition } from './compiler/ast-utils'
-import { given } from './compiler/utils'
+import { exists, given } from './compiler/utils'
+import { text } from 'stream/consumers'
+import { isRelativePath, targetedFiles } from './compiler/modules'
+import { resolve } from 'path'
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -65,6 +68,7 @@ connection.onInitialize((params: InitializeParams) => {
 				resolveProvider: true
 			},
 			hoverProvider: {},
+			inlayHintProvider: {},
 			diagnosticProvider: {
 				interFileDependencies: false,
 				workspaceDiagnostics: false
@@ -144,6 +148,56 @@ connection.languages.diagnostics.on(async (params) => {
 	}
 })
 
+connection.languages.inlayHint.on(async (params) => {
+	const uri = params.textDocument.uri.substring('file://'.length)
+	const modules = await targetedFiles(uri, true)
+	const thisModule = modules.get(uri)
+
+	const document = documents.get(params.textDocument.uri)
+	if (document && thisModule) {
+		const ctx: InferTypeContext = {
+			target: thisModule.target,
+			resolveModule: path => {
+				const absolute =
+					isRelativePath(path)
+						? resolve(uri, '../' + path)
+						: path
+				return modules.get(absolute)
+			}
+		}
+
+		try {
+			return thisModule.ast.declarations
+				.map(decl => {
+					if (decl.kind === 'const-declaration') {
+						const type = inferType(ctx, decl.value)
+
+						if (decl.value.kind === 'function-expression') {
+							if (decl.value.returnType == null) {
+								return {
+									label: `: ${displayType({ typeScope: typeScopeFromModule(ctx, thisModule.ast), valueScope: valueScopeFromModule(ctx, thisModule.ast) }, { kind: 'return-type', subject: type })}`,
+									position: document.positionAt(given(decl.value.params[decl.value.params.length - 1], last => last.src.end + 1) ?? decl.value.src.start + 2) // HACK
+								}
+							}
+						} else {
+							if (decl.declared.type == null) {
+								return {
+									label: `: ${displayType({ typeScope: typeScopeFromModule(ctx, thisModule.ast), valueScope: valueScopeFromModule(ctx, thisModule.ast) }, type)}`,
+									position: document.positionAt(decl.declared.name.src.end)
+								}
+							}
+						}
+					}
+				})
+				.filter(exists)
+		} catch (e) {
+			console.error(e)
+		}
+	}
+
+	return undefined
+})
+
 // export interface InlineCompletionItem {
 //     /**
 //      * The text to replace the range with. Must be set.
@@ -173,12 +227,14 @@ async function validateTextDocument(textDocument: TextDocument): Promise<Diagnos
 	// In this simple example we get the settings for every validate run.
 	const settings = await getDocumentSettings(textDocument.uri)
 
-	// The validator creates diagnostics for all uppercase words length 2 and more
-	const text = textDocument.getText()
+	const uri = textDocument.uri.substring('file://'.length)
+	const modules = await targetedFiles(uri, true)
+	const thisModule = modules.get(uri)
 
-	const parsed = parseModule({ code: text, index: 0 })
+	// TODO: Changes in the other file won't update current file until they're
+	// saved and then it also changes
 
-	if (parsed?.kind === 'success') {
+	if (thisModule) {
 		const diagnostics: Diagnostic[] = []
 
 		try {
@@ -202,9 +258,16 @@ async function validateTextDocument(textDocument: TextDocument): Promise<Diagnos
 							},
 						}))
 					}),
-					platform: 'cross-platform' // TODO
+					resolveModule: path => {
+						const absolute =
+							isRelativePath(path)
+								? resolve(uri, '../' + path)
+								: path
+						return modules.get(absolute)
+					},
+					target: 'cross-platform' // TODO
 				},
-				parsed.parsed
+				thisModule.ast
 			)
 
 			return diagnostics
@@ -227,9 +290,13 @@ async function validateTextDocument(textDocument: TextDocument): Promise<Diagnos
 				severity: DiagnosticSeverity.Error,
 				range: {
 					start: textDocument.positionAt(0),
-					end: textDocument.positionAt(text.length)
+					end: textDocument.positionAt(textDocument.getText().length)
 				},
-				message: 'Failed to parse module: ' + parsed?.error
+				// range: {
+				// 	start: textDocument.positionAt(parsed?.input.index ?? 0),
+				// 	end: textDocument.positionAt(text.length)
+				// },
+				message: 'Failed to parse module' // TODO: Bubble real errors
 			}
 		]
 	}
@@ -293,18 +360,28 @@ connection.onCompletionResolve(
 )
 
 connection.onHover(async (params) => {
+	const uri = params.textDocument.uri.substring('file://'.length)
+	const modules = await targetedFiles(uri, true)
+	const thisModule = modules.get(uri)
+
 	const document = documents.get(params.textDocument.uri)
-	if (document !== undefined) {
-		const result = parseModule({ code: document.getText(), index: 0 })
+	if (document && thisModule) {
+		const ctx: InferTypeContext = {
+			target: thisModule.target,
+			resolveModule: path => {
+				const absolute =
+					isRelativePath(path)
+						? resolve(uri, '../' + path)
+						: path
+				return modules.get(absolute)
+			}
+		}
 
-		const ctx = { platform: 'cross-platform' } as const // TODO
+		try {
+			const selection = findASTNodeAtPosition(document.offsetAt(params.position), thisModule.ast)
 
-		if (result?.kind === 'success') {
-
-			try {
-				const selection = findASTNodeAtPosition(document.offsetAt(params.position), result.parsed)
-
-				const type: Type | undefined = (
+			const type: Type | undefined = (
+				selection?.kind === 'plain-identifier' && selection.parent?.kind === 'import-item' ? declarationType(ctx, selection.parent) :
 					selection?.kind === 'plain-identifier' && selection.parent?.parent?.kind === 'const-declaration' ? inferType(ctx, selection.parent.parent.value) :
 						selection?.kind === 'plain-identifier' && selection.parent?.kind === 'type-declaration' ? resolveType(ctx, selection.parent.type) :
 							selection?.kind === 'string-literal' && selection.parent?.kind === 'property-access-expression' ? inferType(ctx, selection.parent) :
@@ -320,21 +397,20 @@ connection.onHover(async (params) => {
 										} :
 											// @ts-expect-error dsfghjdfgh
 											given(findParentWhere(selection, ast => ast.context === 'expression' || ast.context === 'type-expression'), ast => ast.context === 'expression' ? inferType(ast) : resolveType(ast))
-				)
+			)
 
-				if (type) {
-					return {
-						contents: {
-							kind: 'plaintext',
-							language: 'bagel',
-							value: displayType({ typeScope: typeScopeFromModule(ctx, result.parsed), valueScope: valueScopeFromModule(ctx, result.parsed) }, type)
-						}
+			if (type) {
+				return {
+					contents: {
+						kind: 'plaintext',
+						language: 'bagel',
+						value: displayType({ typeScope: typeScopeFromModule(ctx, thisModule.ast), valueScope: valueScopeFromModule(ctx, thisModule.ast) }, type)
 					}
 				}
-
-			} catch (e) {
-				console.error(e)
 			}
+
+		} catch (e) {
+			console.error(e)
 		}
 	}
 

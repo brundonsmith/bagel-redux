@@ -9,7 +9,7 @@ function testInferType(code: string, expectedType: Type) {
 			throw Error('Failed to parse code: ' + code)
 		}
 
-		const inferredType = inferType({ platform: 'cross-platform' }, parseResult.parsed)
+		const inferredType = inferType({ target: 'cross-platform', resolveModule: () => undefined }, parseResult.parsed)
 
 		t.deepEqual(
 			inferredType,

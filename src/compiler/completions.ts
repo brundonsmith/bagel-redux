@@ -12,7 +12,8 @@ export const getCompletions = profile('getCompletions', (module: ModuleAST, posi
 	}
 
 	const ctx: InferTypeContext = {
-		platform: 'cross-platform',
+		target: 'cross-platform',
+		resolveModule: () => undefined
 	}
 
 	return valueDeclarationsInScope(ctx, selected, selected)

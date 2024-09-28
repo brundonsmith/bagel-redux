@@ -1,17 +1,18 @@
-import { Module } from './cli'
+import { Module } from './modules'
 import { transpile } from './transpiler'
 
 export type BundlerOptions = {
-	modules: Module[],
+	entryModule: Module,
+	modules: Map<string, Module>,
 }
 
-export const bundle = ({ modules }: BundlerOptions): string => {
+export const bundle = ({ entryModule, modules }: BundlerOptions): string => {
 	// const entryModule = modules.find(m => m.isEntry)
 	// if (!entryModule) {
 	// 	throw Error()
 	// }
 
-	const transpiled = modules.map(m => transpile(
+	const transpiled = Array.from(modules.values()).map(m => transpile(
 		{
 			outputTypes: false,
 			minify: false,

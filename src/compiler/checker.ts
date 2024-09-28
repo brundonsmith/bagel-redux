@@ -1,16 +1,17 @@
-import { ModulePlatform } from './cli'
-import { AST, Expression, ModuleAST, span, TypeExpression } from './parser'
+import { Module, ModulePlatform } from './modules'
+import { AST, ConstDeclaration, Expression, ModuleAST, span, TypeDeclaration, TypeExpression } from './parser'
 import { ParseSource } from './parser-combinators'
 import { displayType, inferType, resolveValueDeclaration, resolveType, subsumationIssues, subsumes, simplifyType, literal, TypeContext, Type, poisoned, resolveTypeDeclaration, unknown, inferBodyType, ResolveTypeContext, InferTypeContext, globalJSType } from './types'
-import { given, profile, zip } from './utils'
+import { exists, given, profile, zip } from './utils'
 
 export type CheckerError = { message: string, src: ParseSource, details?: { message: string, src: ParseSource }[] }
 
 // TODO: Warning-level issues
 export type CheckContext = {
 	error: (err: CheckerError) => void,
-	platform: ModulePlatform,
-	typeContext?: TypeContext
+	target: ModulePlatform,
+	typeContext?: TypeContext,
+	resolveModule: (relativeUri: string) => Module | undefined
 }
 
 export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): void => {
@@ -338,18 +339,50 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 export const typeScopeFromModule = (ctx: ResolveTypeContext, ast: ModuleAST): TypeContext['typeScope'] => {
 	return Object.fromEntries(
 		ast.declarations
-			.filter(d => d.kind === 'type-declaration')
-			.map(d => [d.name.identifier, resolveType(ctx, d.type)])
+			.map(d => {
+				switch (d.kind) {
+					case 'type-declaration': return [[d.name.identifier, resolveType(ctx, d.type)]]
+					case 'import-declaration': return d.imports
+						.map(i => {
+							const otherDeclaration = ctx.resolveModule(d.uri.value)?.ast.declarations
+								.find((d): d is TypeDeclaration => d.kind === 'type-declaration' && d.exported && d.name.identifier === i.name.identifier)
+
+							if (otherDeclaration) {
+								const type = resolveType(ctx, otherDeclaration.type)
+								return [i.name.identifier, type]
+							}
+						})
+						.filter(exists)
+				}
+			})
+			.filter(exists)
+			.flat()
 	)
 }
 
 export const valueScopeFromModule = (ctx: InferTypeContext, ast: ModuleAST): TypeContext['valueScope'] => {
 	return {
-		js: globalJSType(ctx.platform),
+		js: globalJSType(ctx.target),
 		...Object.fromEntries(
 			ast.declarations
-				.filter(d => d.kind === 'const-declaration')
-				.map(d => [d.declared.name.identifier, inferType(ctx, d.value)])
+				.map(d => {
+					switch (d.kind) {
+						case 'const-declaration': return [[d.declared.name.identifier, inferType(ctx, d.value)]]
+						case 'import-declaration': return d.imports
+							.map(i => {
+								const otherDeclaration = ctx.resolveModule(d.uri.value)?.ast.declarations
+									.find((d): d is ConstDeclaration => d.kind === 'const-declaration' && d.exported && d.declared.name.identifier === i.name.identifier)
+
+								if (otherDeclaration) {
+									const type = given(otherDeclaration?.declared.type, t => resolveType(ctx, t)) ?? inferType(ctx, otherDeclaration.value)
+									return [i.name.identifier, type]
+								}
+							})
+							.filter(exists)
+					}
+				})
+				.filter(exists)
+				.flat()
 		)
 	}
 }

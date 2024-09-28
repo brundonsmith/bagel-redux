@@ -1,7 +1,8 @@
-const double = (x: number) => x * 2
-
+from './test2.bgl' import { double }
 const main = () => {
   const x = 12
   const y = double(x)
   js.console.log(y)
 }
+
+const x = double(12 + 2 * 3)

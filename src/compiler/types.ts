@@ -1,9 +1,9 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
-import { ModulePlatform } from './cli'
-import { AST, BinaryOperator, ConstDeclaration, Expression, GenericTypeParameter, ImportItem, NameAndType, Spread, Statement, TypeDeclaration, TypeExpression, isValidIdentifier, parseModule } from './parser'
+import { AST, BinaryOperator, ConstDeclaration, Expression, GenericTypeParameter, ImportDeclaration, ImportItem, NameAndType, Spread, Statement, TypeDeclaration, TypeExpression, isValidIdentifier, parseModule } from './parser'
 import { input } from './parser-combinators'
 import { todo, zip, profile, given, exists } from './utils'
+import { Module, ModulePlatform } from './modules'
 
 export type Type =
 	| Readonly<{ kind: 'function-type', params: Array<FunctionParam | SpreadType>, returns: Type, pure: boolean }>
@@ -63,7 +63,8 @@ export type KeyValueType = { kind: 'key-value-type', key: Type, value: Type }
 export type SpreadType = { kind: 'spread', spread: Type }
 
 export type InferTypeContext = {
-	platform: ModulePlatform
+	target: ModulePlatform,
+	resolveModule: (relativeUri: string) => Module | undefined
 }
 
 export const inferType = profile('inferType', (ctx: InferTypeContext, expression: Expression): Type => {
@@ -179,7 +180,16 @@ const opOnRange = (operator: '+' | '-' | '*' | '/', left: Range | number | undef
 
 export const declarationType = (ctx: InferTypeContext, declaration: ValueCreator | undefined): Type => {
 	switch (declaration?.kind) {
-		case 'import-item': return todo()
+		case 'import-item': {
+			const otherDeclaration = ctx.resolveModule((declaration.parent as ImportDeclaration).uri.value)?.ast.declarations
+				.find((d): d is ConstDeclaration => d.kind === 'const-declaration' && d.exported && d.declared.name.identifier === declaration.name.identifier)
+
+			if (otherDeclaration) {
+				return inferType(ctx, otherDeclaration.value)
+			} else {
+				return poisoned // TODO: checker error if import name is found but doesn't exist in other module
+			}
+		}
 		case 'const-declaration': return inferType(ctx, declaration.value)
 		case 'name-and-type': {
 			if (declaration.type) {
@@ -226,7 +236,7 @@ export const valueDeclarationsInScope = (ctx: InferTypeContext, at: AST | undefi
 			{
 				kind: 'raw-named-type',
 				name: 'js',
-				type: globalJSType(ctx.platform)
+				type: globalJSType(ctx.target)
 			}
 		]
 	}
@@ -316,7 +326,8 @@ const typeDeclarationsInScope = (at: AST | undefined): Array<TypeCreator> => {
 }
 
 export type ResolveTypeContext = {
-	platform: ModulePlatform
+	target: ModulePlatform,
+	resolveModule: (relativeUri: string) => Module | undefined
 }
 
 export const resolveType = (ctx: ResolveTypeContext, typeExpression: TypeExpression): Type => {
@@ -1222,7 +1233,7 @@ export const globals = Object.fromEntries(
 	globalsResult.parsed.declarations.map(decl =>
 		[
 			(decl as TypeDeclaration).name.identifier,
-			resolveType({ platform: 'cross-platform' }, (decl as TypeDeclaration).type)
+			resolveType({ target: 'cross-platform', resolveModule: () => undefined }, (decl as TypeDeclaration).type)
 		])) as Record<'JS' | 'JSNode' | 'JSBrowser', Type>
 
 export const globalJSType = (platform: ModulePlatform): Type =>

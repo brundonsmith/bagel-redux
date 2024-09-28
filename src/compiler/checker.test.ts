@@ -13,7 +13,7 @@ function testCheck(code: string, expectError: boolean) {
 
 		const errors: CheckerError[] = []
 
-		check({ error: err => errors.push(err), platform: 'cross-platform' }, parseResult.parsed)
+		check({ error: err => errors.push(err), target: 'cross-platform', resolveModule: () => undefined }, parseResult.parsed)
 
 		if (expectError) {
 			t.notDeepEqual(errors, [], 'Expected Bagel error, but received none')
