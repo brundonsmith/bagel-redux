@@ -222,7 +222,6 @@ async function validateTextDocument(textDocument: TextDocument): Promise<Diagnos
 
 	const uri = textDocument.uri.substring('file://'.length)
 	const modules = await targetedDocuments(uri)
-	console.log(modules)
 	const thisModule = modules.get(uri)
 
 	// TODO: Changes in the other file won't update current file until they're

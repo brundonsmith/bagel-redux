@@ -80,18 +80,6 @@ const modulePlatformFromUri = (uri: string): ModulePlatform | undefined => {
 	}
 }
 
-export const moduleFromSource = (path: string, ast: ModuleAST): Module => {
-
-	return {
-		uri: path,
-		isRemote: false,
-		target: 'cross-platform', // TODO
-		localPath: path,
-		code: ast.src.code,
-		ast
-	}
-}
-
 const walk = promisify(_walk)
 
 export const targetedFiles = async (dir: string, followImports?: boolean) => {

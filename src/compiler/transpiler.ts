@@ -5,6 +5,7 @@ export type TranspileContext = {
 	outputTypes: boolean,
 	minify: boolean,
 	testMode: boolean,
+	forBundle: boolean,
 }
 
 export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
@@ -14,8 +15,14 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 
 	switch (ast.kind) {
 		case 'module': return comments + ast.declarations.map(trans).join('\n\n')
-		case 'import-declaration': return comments + `import { ${ast.imports.map(trans).join(', ')} } from ${trans(ast.uri)}`
-		case 'import-item': return comments + `${trans(ast.name)}${ast.alias ? ` as ${trans(ast.alias)}` : ''}`
+		case 'import-declaration': {
+			if (!ctx.forBundle) {
+				return comments + `const { ${ast.imports.map(trans).join(', ')} } = require(${trans(ast.uri)})`
+			} else {
+				return ''
+			}
+		}
+		case 'import-item': return comments + `${trans(ast.name)}${ast.alias ? `: ${trans(ast.alias)}` : ''}`
 		case 'type-declaration': {
 			let name = trans(ast.name)
 			let typ = ast.type
@@ -24,9 +31,9 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 				typ = ast.type.inner
 			}
 
-			return comments + `${ast.exported ? 'export ' : ''}type ${name} = ${trans(typ)}`
+			return comments + `${ast.exported && !ctx.forBundle ? 'export ' : ''}type ${name} = ${trans(typ)}`
 		}
-		case 'const-declaration': return comments + `${ast.exported ? 'export ' : ''}const ${trans(ast.declared)} = ${trans(ast.value)}`
+		case 'const-declaration': return comments + `${ast.exported && !ctx.forBundle ? 'export ' : ''}const ${trans(ast.declared)} = ${trans(ast.value)}`
 		case 'typeof-type-expression': return comments + `typeof ${trans(ast.expression)}`
 		case 'function-type-expression': return comments + `(${ast.params.map((p, i) => `_${i}: ${trans(p)}`).join(', ')}) => ${trans(ast.returns)}`
 		case 'union-type-expression': return comments + ast.members.map(trans).join(' | ')

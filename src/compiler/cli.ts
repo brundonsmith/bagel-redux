@@ -7,7 +7,7 @@ import { format } from './formatter'
 import { check, CheckerError } from './checker'
 import { bundle } from './bundler'
 import { spawn } from 'child_process'
-import { isRelativePath, moduleCachePath, targetedFiles } from './modules'
+import { fullPath, moduleCachePath, targetedFiles } from './modules'
 
 const checkAll = async (dir: string) => {
 	const modules = await targetedFiles(dir, true)
@@ -17,13 +17,7 @@ const checkAll = async (dir: string) => {
 		check({
 			error: e => errors.push(e),
 			target,
-			resolveModule: (path: string) => {
-				const absolute =
-					isRelativePath(path)
-						? resolve(uri, '../' + path)
-						: path
-				return modules.get(absolute)
-			}
+			resolveModule: path => modules.get(fullPath(uri, path))
 		}, ast)
 
 		if (errors.length === 0) {
@@ -43,7 +37,8 @@ const transpileAll = async (dir: string) => {
 			{
 				outputTypes: true,
 				minify: false,
-				testMode: false
+				testMode: false,
+				forBundle: false
 			},
 			ast
 		)
@@ -58,7 +53,7 @@ const bundleModule = async (entry: string): Promise<string | undefined> => {
 		throw Error('Bundle command requires a single entry module')
 	}
 
-	const modules = await targetedFiles(entry)
+	const modules = await targetedFiles(entry, true)
 	const entryModule = modules.get(entry)!
 
 	const bundled = bundle({
@@ -104,7 +99,7 @@ if (command !== 'check' && command !== 'transpile' && command !== 'bundle' && co
 	throw Error('Expected command')
 }
 
-const target = process.argv[3] ?? process.cwd()
+const target = resolve(process.cwd(), process.argv[3] ?? process.cwd())
 
 switch (command) {
 	case 'check': checkAll(target); break
