@@ -373,12 +373,15 @@ const importDeclaration: BagelParser<ImportDeclaration | BrokenSubtree> = profil
 	tuple(
 		exact('from'),
 		preceded(stringLiteral),
+		whitespace,
 		expect('import'),
+		whitespace,
 		expect('{'),
 		manySep0(preceded(importItem), tuple(whitespace, exact(','))),
+		whitespace,
 		expect('}')
 	),
-	([_0, uri, _1, _2, imports, _3], src) =>
+	([_0, uri, _1, _2, _3, _4, imports, _5, _6], src) =>
 		uri.kind === 'string-literal'
 			? {
 				kind: 'import-declaration' as const,
@@ -411,7 +414,7 @@ const typeDeclaration: BagelParser<TypeDeclaration> = profile('typeDeclaration',
 
 const constDeclaration: BagelParser<ConstDeclaration> = profile('constDeclaration', input => map(
 	tuple(
-		optionalKeyword('export '),
+		optionalKeyword('export '), // TODO: Forbid in statement context
 		exact('const '),
 		whitespace,
 		required(nameAndType, () => 'Expected name'),
