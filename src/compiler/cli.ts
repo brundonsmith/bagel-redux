@@ -9,8 +9,9 @@ import { bundle } from './bundler'
 import { spawn } from 'child_process'
 import { fullPath, moduleCachePath, targetedFiles } from './modules'
 
-const checkAll = async (dir: string) => {
+const getErrors = async (dir: string) => {
 	const modules = await targetedFiles(dir, true)
+	const moduleErrors = new Map<string, CheckerError[]>()
 	for (const { uri, target, ast } of modules.values()) {
 		const errors: CheckerError[] = []
 
@@ -20,6 +21,13 @@ const checkAll = async (dir: string) => {
 			resolveModule: path => modules.get(fullPath(uri, path))
 		}, ast)
 
+		moduleErrors.set(uri, errors)
+	}
+	return moduleErrors
+}
+
+const printErrors = (moduleErrors: Map<string, CheckerError[]>) => {
+	for (const [uri, errors] of moduleErrors.entries()) {
 		if (errors.length === 0) {
 			console.log(uri + ' ' + '✅')
 		} else {
@@ -31,7 +39,21 @@ const checkAll = async (dir: string) => {
 	}
 }
 
-const transpileAll = async (dir: string) => {
+const checkAll = async (dir: string) => {
+	const moduleErrors = await getErrors(dir)
+	printErrors(moduleErrors)
+}
+
+const transpileAll = async (dir: string, { ignoreErrors }: { ignoreErrors: boolean }) => {
+	const errors = await getErrors(dir)
+	if (Array.from(errors.values()).some(errors => errors.length > 0)) {
+		printErrors(errors)
+
+		if (!ignoreErrors) {
+			return
+		}
+	}
+
 	for (const { localPath, ast } of (await targetedFiles(dir)).values()) {
 		const transpiled = transpile(
 			{
@@ -44,6 +66,7 @@ const transpileAll = async (dir: string) => {
 		)
 		await writeFile(localPath + '.ts', transpiled)
 	}
+
 }
 
 const bundleModule = async (entry: string): Promise<string | undefined> => {
@@ -64,7 +87,16 @@ const bundleModule = async (entry: string): Promise<string | undefined> => {
 	return bundled
 }
 
-const bundleFrom = async (entry: string, inCachePath?: boolean) => {
+const bundleFrom = async (entry: string, { ignoreErrors, inCachePath }: { ignoreErrors: boolean, inCachePath?: boolean }) => {
+	const errors = await getErrors(entry)
+	if (Array.from(errors.values()).some(errors => errors.length > 0)) {
+		printErrors(errors)
+
+		if (!ignoreErrors) {
+			return
+		}
+	}
+
 	const bundled = await bundleModule(entry)
 
 	if (bundled != null) {
@@ -82,9 +114,11 @@ const bundleFrom = async (entry: string, inCachePath?: boolean) => {
 	}
 }
 
-const bundleAndRun = async (entry: string) => {
-	const bundlePath = await bundleFrom(entry, true)
-	spawn('node', [bundlePath], { stdio: 'inherit' })
+const bundleAndRun = async (entry: string, { ignoreErrors }: { ignoreErrors: boolean }) => {
+	const bundlePath = await bundleFrom(entry, { ignoreErrors, inCachePath: true })
+	if (bundlePath) {
+		spawn('node', [bundlePath], { stdio: 'inherit' })
+	}
 }
 
 const formatAll = async (dir: string) => {
@@ -94,17 +128,21 @@ const formatAll = async (dir: string) => {
 	}
 }
 
-const command = process.argv[2]
-if (command !== 'check' && command !== 'transpile' && command !== 'bundle' && command !== 'run' && command !== 'format') {
-	throw Error('Expected command')
-}
+{
+	const command = process.argv[2]
+	if (command !== 'check' && command !== 'transpile' && command !== 'bundle' && command !== 'run' && command !== 'format') {
+		throw Error('Expected command')
+	}
 
-const target = resolve(process.cwd(), process.argv[3] ?? process.cwd())
+	const target = resolve(process.cwd(), process.argv[3] ?? process.cwd())
 
-switch (command) {
-	case 'check': checkAll(target); break
-	case 'transpile': transpileAll(target); break
-	case 'bundle': bundleFrom(target); break
-	case 'run': bundleAndRun(target); break
-	case 'format': formatAll(target); break
+	const ignoreErrors = process.argv.includes('--ignoreErrors')
+
+	switch (command) {
+		case 'check': checkAll(target); break
+		case 'transpile': transpileAll(target, { ignoreErrors }); break
+		case 'bundle': bundleFrom(target, { ignoreErrors }); break
+		case 'run': bundleAndRun(target, { ignoreErrors }); break
+		case 'format': formatAll(target); break
+	}
 }
