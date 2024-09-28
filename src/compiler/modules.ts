@@ -18,7 +18,7 @@ export type Module = {
 
 export type ModulePlatform = 'browser' | 'node' | 'cross-platform'
 
-export const loadModule = async (path: string): Promise<Module | undefined> => {
+export const loadModuleFile = async (path: string): Promise<Module | undefined> => {
 	if (!path.endsWith('.bgl')) {
 		return undefined
 	} else if (isRemoteUrl(path)) {
@@ -103,40 +103,42 @@ export const targetedFiles = async (dir: string, followImports?: boolean) => {
 			: (await walk(dir)).map(e => e.path)
 	)
 
-	const entryModules = await Promise.all(entries.map(loadModule)).then(modules => modules.filter(exists))
+	const entryModules = await Promise.all(entries.map(loadModuleFile)).then(modules => modules.filter(exists))
 	const moduleMap = new Map<string, Module>()
 	for (const m of entryModules) {
 		moduleMap.set(m.uri, m) // TODO
 	}
 
-	const loadImported = async (module: Module) => {
-		for (const decl of module.ast.declarations) {
-			if (decl.kind === 'import-declaration') {
-				const path =
-					isRelativePath(decl.uri.value)
-						? resolve(module.uri, '../' + decl.uri.value)
-						: decl.uri.value
-
-				if (!moduleMap.has(path)) {
-					const module = await loadModule(path)
-
-					if (module) {
-						moduleMap.set(path, module)
-						await loadImported(module)
-					}
-				}
-			}
-		}
-	}
-
 	if (followImports) {
 		for (const m of moduleMap.values()) {
-			await loadImported(m)
+			await loadImported(moduleMap, m, loadModuleFile)
 		}
 	}
 
 	return moduleMap
 }
+
+export const loadImported = async (moduleMap: Map<string, Module>, module: Module, loadModule: (path: string) => Promise<Module | undefined>) => {
+	for (const decl of module.ast.declarations) {
+		if (decl.kind === 'import-declaration') {
+			const path = fullPath(module.uri, decl.uri.value)
+
+			if (!moduleMap.has(path)) {
+				const module = await loadModule(path)
+
+				if (module) {
+					moduleMap.set(path, module)
+					await loadImported(moduleMap, module, loadModule)
+				}
+			}
+		}
+	}
+}
+
+export const fullPath = (relativeTo: string, path: string) =>
+	isRelativePath(path)
+		? resolve(relativeTo, '../' + path)
+		: path
 
 export const moduleCachePath = (modulePath: string) => join(CACHE_DIR, moduleCacheName(modulePath))
 const moduleCacheName = (modulePath: string) => encodeURIComponent(resolve(modulePath))

@@ -29,8 +29,7 @@ import { InferTypeContext, Type, declarationType, displayType, inferType, litera
 import { findASTNodeAtPosition } from './compiler/ast-utils'
 import { exists, given } from './compiler/utils'
 import { text } from 'stream/consumers'
-import { isRelativePath, targetedFiles } from './compiler/modules'
-import { resolve } from 'path'
+import { fullPath, loadImported, loadModuleFile, Module, moduleFromPath, targetedFiles } from './compiler/modules'
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -150,20 +149,14 @@ connection.languages.diagnostics.on(async (params) => {
 
 connection.languages.inlayHint.on(async (params) => {
 	const uri = params.textDocument.uri.substring('file://'.length)
-	const modules = await targetedFiles(uri, true)
+	const modules = await targetedDocuments(uri)
 	const thisModule = modules.get(uri)
 
 	const document = documents.get(params.textDocument.uri)
 	if (document && thisModule) {
 		const ctx: InferTypeContext = {
 			target: thisModule.target,
-			resolveModule: path => {
-				const absolute =
-					isRelativePath(path)
-						? resolve(uri, '../' + path)
-						: path
-				return modules.get(absolute)
-			}
+			resolveModule: path => modules.get(fullPath(uri, path))
 		}
 
 		try {
@@ -228,7 +221,8 @@ async function validateTextDocument(textDocument: TextDocument): Promise<Diagnos
 	const settings = await getDocumentSettings(textDocument.uri)
 
 	const uri = textDocument.uri.substring('file://'.length)
-	const modules = await targetedFiles(uri, true)
+	const modules = await targetedDocuments(uri)
+	console.log(modules)
 	const thisModule = modules.get(uri)
 
 	// TODO: Changes in the other file won't update current file until they're
@@ -258,13 +252,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<Diagnos
 							},
 						}))
 					}),
-					resolveModule: path => {
-						const absolute =
-							isRelativePath(path)
-								? resolve(uri, '../' + path)
-								: path
-						return modules.get(absolute)
-					},
+					resolveModule: path => modules.get(fullPath(uri, path)),
 					target: 'cross-platform' // TODO
 				},
 				thisModule.ast
@@ -361,20 +349,14 @@ connection.onCompletionResolve(
 
 connection.onHover(async (params) => {
 	const uri = params.textDocument.uri.substring('file://'.length)
-	const modules = await targetedFiles(uri, true)
+	const modules = await targetedDocuments(uri)
 	const thisModule = modules.get(uri)
 
 	const document = documents.get(params.textDocument.uri)
 	if (document && thisModule) {
 		const ctx: InferTypeContext = {
 			target: thisModule.target,
-			resolveModule: path => {
-				const absolute =
-					isRelativePath(path)
-						? resolve(uri, '../' + path)
-						: path
-				return modules.get(absolute)
-			}
+			resolveModule: path => modules.get(fullPath(uri, path))
 		}
 
 		try {
@@ -426,6 +408,26 @@ const findParentWhere = (ast: AST | undefined, fn: (ast: AST) => boolean): AST |
 			current = current.parent
 		]
 	}
+}
+
+const targetedDocuments = async (uri: string): Promise<Map<string, Module>> => {
+	const map = new Map<string, Module>()
+
+	const loadModule = async (uri: string) => {
+		const document = documents.get(`file://${uri}`)
+		if (document) {
+			return moduleFromPath(uri, document.getText())
+		} else {
+			return loadModuleFile(uri)
+		}
+	}
+
+	const thisModule = await loadModule(uri)
+	if (thisModule) {
+		map.set(uri, thisModule)
+		await loadImported(map, thisModule, loadModule)
+	}
+	return map
 }
 
 // Make the text document manager listen on the connection
