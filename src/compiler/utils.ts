@@ -36,7 +36,7 @@ let timings = new Map<string, number>()
 let counts = new Map<string, number>()
 let callStack: string[] = []
 const add = (map: Map<string, number>, name: string, time: number) => map.set(name, (map.get(name) ?? 0) + time)
-const pad = (str: string) => str + new Array(20 - str.length).fill(' ').join('')
+const pad = (str: string) => str + new Array(Math.max(20 - str.length, 0)).fill(' ').join('')
 
 const profilingEnabled = false
 
