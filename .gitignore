@@ -5,3 +5,4 @@ client/server
 *.bgl.ts
 *.bgl.js
 *.bgl.bundle.js
+.DS_Store
