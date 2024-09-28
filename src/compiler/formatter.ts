@@ -70,8 +70,8 @@ export const format = (ast: AST, { indentation, multiline }: FormatContext = { i
 				.filter(d => d.kind !== 'import-declaration')
 
 			return comments
-				+ remoteImports.map(f).join('\n') + (remoteImports.length > 0 ? '\n' : '')
-				+ localImports.map(f).join('\n') + (localImports.length > 0 ? '\n' : '')
+				+ remoteImports.map(f).join('\n') + (remoteImports.length > 0 ? '\n\n' : '')
+				+ localImports.map(f).join('\n') + (localImports.length > 0 ? '\n\n' : '')
 				+ nonImports.map(f).join('\n\n')
 		}
 		case 'import-declaration': return comments + `from ${f(ast.uri)} import { ${commaSeparated(ast.imports)} }`

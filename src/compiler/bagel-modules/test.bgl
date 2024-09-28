@@ -1,4 +1,5 @@
 from './test2.bgl' import { double }
+
 const main = () => {
   const x = 12
   const y = double(x)
