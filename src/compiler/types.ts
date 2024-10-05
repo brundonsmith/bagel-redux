@@ -71,6 +71,36 @@ export const inferType = profile('inferType', (ctx: InferTypeContext, expression
 	const infer = (expression: Expression) => inferType(ctx, expression)
 
 	switch (expression.kind) {
+		case 'markup-expression': return {
+			kind: 'object-type',
+			entries: [
+				{
+					kind: 'key-value-type',
+					key: literal('tag'),
+					value: literal(expression.tag.identifier)
+				},
+				{
+					kind: 'key-value-type',
+					key: literal('props'),
+					value: {
+						kind: 'object-type',
+						entries: expression.props.map(({ key, value }) => ({
+							kind: 'key-value-type',
+							key: literal(key.identifier),
+							value: inferType(ctx, value)
+						}))
+					}
+				},
+				{
+					kind: 'key-value-type',
+					key: literal('children'),
+					value: {
+						kind: 'array-type',
+						elements: expression.children.map(c => inferType(ctx, c))
+					}
+				}
+			]
+		}
 		case 'property-access-expression': return {
 			kind: 'property-type',
 			subject: infer(expression.subject),

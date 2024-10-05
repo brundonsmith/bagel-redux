@@ -81,6 +81,23 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 			case 'union-type-expression': {
 				ch(ast.members)
 			} break
+			case 'markup-expression': {
+				ch(ast.tag)
+				ch(ast.closingTag)
+				ch(ast.props)
+				ch(ast.children)
+
+				if (ast.tag.identifier !== ast.closingTag.identifier) {
+					error({
+						message: `Closing tag ${ast.closingTag.identifier} doesn't match opening tag ${ast.tag.identifier}`,
+						src: ast.closingTag.src
+					})
+				}
+			} break
+			case 'markup-key-value': {
+				ch(ast.key)
+				ch(ast.value)
+			} break
 			case 'property-access-expression': {
 				const subjectType = infer(ast.subject)
 				const propertyType = infer(ast.property)

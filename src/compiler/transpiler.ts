@@ -46,6 +46,14 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 		case 'number-type-expression': return comments + 'number'
 		case 'boolean-type-expression': return comments + 'boolean'
 		case 'unknown-type-expression': return comments + 'unknown'
+		case 'markup-expression': {
+			return `{
+				tag: '${ast.tag.identifier}',
+				props: {${ast.props.map(trans).join(', ')}},
+				children: [${ast.children.map(trans).join(', ')}]
+			}`
+		}
+		case 'markup-key-value': return `${ast.key.identifier}: ${trans(ast.value)}`
 		case 'property-access-expression':
 			return comments + (
 				ast.subject.kind === 'local-identifier' && ast.subject.identifier === 'js' && ast.property.kind === 'string-literal'

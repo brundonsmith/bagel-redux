@@ -90,6 +90,16 @@ export const format = (ast: AST, { indentation, multiline }: FormatContext = { i
 		case 'number-type-expression': return comments + 'number'
 		case 'boolean-type-expression': return comments + 'boolean'
 		case 'unknown-type-expression': return comments + 'unknown'
+		case 'markup-expression': {
+			let res = ''
+
+			res += indent + `<${ast.tag.identifier}${ast.props.map(p => ' ' + f(p)).join('')}>`
+			res += ast.children.map(c => c.kind === 'markup-expression' ? fi(c) : '{' + fi(c) + '}').join('\n')
+			res += indent + `</${ast.tag.identifier}>`
+
+			return res
+		}
+		case 'markup-key-value': return comments + `${ast.key.identifier}={${f(ast.value)}}`
 		case 'property-access-expression': return comments + `${f(ast.subject)}${ast.property.kind === 'string-literal' && isValidIdentifier(ast.property.value)
 			? `.${ast.property.value}`
 			: `[${f(ast.property)}]`}`

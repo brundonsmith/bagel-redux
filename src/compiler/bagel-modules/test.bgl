@@ -2,8 +2,16 @@ from './test2.bgl' import { double }
 
 const main = () => {
   const x = 12
-  const y = double(x)
+  const y = double({ num: x })
   js.console.log(y)
 }
 
-const x = double(12 + 2 * 3)
+const x = double({ num: 12 + 2 * 'stuff' })
+
+const y = [1, 2, 3]
+
+const foo = <div foo={12}>{'stuff'}</div>
+
+const renderGreeting = (name: string) => <h1>{'Hello, ' + name}</h1>
+
+const testGreeting = renderGreeting('Brandon')

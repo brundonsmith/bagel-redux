@@ -20,6 +20,7 @@ export type AST =
 	| GenericTypeParameter
 	| PlainIdentifier
 	| Comment
+	| MarkupKeyValue
 	| BrokenSubtree
 
 export type ModuleAST = {
@@ -75,6 +76,7 @@ export type BooleanTypeExpression = Readonly<{ kind: 'boolean-type-expression' }
 export type UnknownTypeExpression = Readonly<{ kind: 'unknown-type-expression' } & ASTInfo>
 
 export type Expression =
+	| MarkupExpression
 	| PropertyAccessExpression
 	| AsExpression
 	| FunctionExpression
@@ -91,6 +93,8 @@ export type Expression =
 	| LocalIdentifier
 	| BrokenSubtree
 
+export type MarkupExpression = Readonly<{ kind: 'markup-expression', tag: PlainIdentifier, closingTag: PlainIdentifier, props: MarkupKeyValue[], children: Expression[] } & ASTInfo>
+export type MarkupKeyValue = Readonly<{ kind: 'markup-key-value', key: PlainIdentifier, value: Expression } & ASTInfo>
 export type ParenthesisExpression = Readonly<{ kind: 'parenthesis', inner: Expression } & ASTInfo>
 export type ObjectExpression = Readonly<{ kind: 'object-literal', entries: Array<Readonly<{ kind: 'key-value', key: Expression, value: Expression } & ASTInfo> | Readonly<{ kind: 'spread', spread: Expression } & ASTInfo> | LocalIdentifier> } & ASTInfo>
 export type ArrayExpression = Readonly<{ kind: 'array-literal', elements: Array<Expression | Readonly<{ kind: 'spread', spread: Expression } & ASTInfo>> } & ASTInfo>
@@ -831,7 +835,7 @@ const functionExpression: BagelParser<FunctionExpression> = input => map(
 		)
 	),
 	([pure, params, _5, returnType, _6, _7, _8, body], src) => ({
-		kind: 'function-expression' as const,
+		kind: 'function-expression',
 		pure,
 		params,
 		returnType,
@@ -843,6 +847,46 @@ const functionExpression: BagelParser<FunctionExpression> = input => map(
 const statement: BagelParser<Statement> = input => oneOf(
 	filter(propertyAccessInvocationChain, parsed => parsed.kind === 'invocation') as BagelParser<Invocation>,
 	constDeclaration
+)(input)
+
+const markupExpression: BagelParser<MarkupExpression> = input => map(
+	tuple(
+		exact('<'),
+		plainIdentifier,
+		whitespace,
+		manySep0(
+			map(
+				tuple(
+					plainIdentifier,
+					exact('='),
+					exact('{'),
+					expression(),
+					exact('}')
+				),
+				([key, _0, _1, value, _2], src) => ({ kind: 'markup-key-value' as const, key, value, src })
+			),
+			whitespace,
+		),
+		exact('>'),
+		manySep0(
+			oneOf(
+				markupExpression,
+				map(tuple(exact('{'), whitespace, expression(), whitespace, exact('}')), ([_0, _1, expression, _2, _3]) => expression)
+			),
+			whitespace
+		),
+		exact('</'),
+		plainIdentifier,
+		exact('>')
+	),
+	([_0, tag, _1, props, _2, children, _3, closingTag, _4], src) => ({
+		kind: 'markup-expression',
+		tag,
+		closingTag,
+		props,
+		children,
+		src
+	} as const)
 )(input)
 
 const propertyAccessInvocationChain: BagelParser<Invocation | PropertyAccessExpression> = input => map(
@@ -1019,6 +1063,7 @@ const arrayLiteralExpression = input => arrayLiteral(expression())(input)
 // @ts-expect-error sdfjhg
 export const expression: Precedence<BagelParser<Expression>> = precedenceWithContext(
 	'expression',
+	markupExpression,
 	asExpression,
 	fallback,
 	or,
