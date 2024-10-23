@@ -169,7 +169,7 @@ connection.languages.inlayHint.on(async (params) => {
 			return visitAST<InlayHint[]>([], thisModule.ast, (ast, hints) => {
 				const newHints: InlayHint[] = []
 				switch (ast.kind) {
-					case 'const-declaration': {
+					case 'variable-declaration': {
 						const type = inferType(ctx, ast.value)
 
 						if (ast.value.kind === 'function-expression') {
@@ -381,21 +381,22 @@ connection.onHover(async (params) => {
 
 			const type: Type | undefined = (
 				selection?.kind === 'plain-identifier' && selection.parent?.kind === 'import-item' ? declarationType(ctx, selection.parent) :
-					selection?.kind === 'plain-identifier' && selection.parent?.parent?.kind === 'const-declaration' ? inferType(ctx, selection.parent.parent.value) :
+					selection?.kind === 'plain-identifier' && selection.parent?.parent?.kind === 'variable-declaration' ? inferType(ctx, selection.parent.parent.value) :
 						selection?.kind === 'plain-identifier' && selection.parent?.kind === 'type-declaration' ? resolveType(ctx, selection.parent.type) :
 							selection?.kind === 'string-literal' && selection.parent?.kind === 'property-access-expression' ? inferType(ctx, selection.parent) :
 								selection?.kind === 'local-identifier' && selection.context === 'expression' ? declarationType(ctx, resolveValueDeclaration(ctx, selection.identifier, selection, selection)) :
-									selection?.kind === 'local-identifier' && selection.context === 'type-expression' ? typeDeclarationType(ctx, resolveTypeDeclaration(selection.identifier, selection)) :
-										selection?.kind === 'plain-identifier' && selection.parent?.kind === 'name-and-type' && selection.parent.parent?.kind === 'function-expression' ? {
-											kind: 'property-type',
-											subject: {
-												kind: 'parameters-type',
-												subject: inferType(ctx, selection.parent.parent),
-											},
-											property: literal(selection.parent.parent.params.indexOf(selection.parent))
-										} :
-											// @ts-expect-error dsfghjdfgh
-											given(findParentWhere(selection, ast => ast.context === 'expression' || ast.context === 'type-expression'), ast => ast.context === 'expression' ? inferType(ast) : resolveType(ast))
+									selection?.kind === 'local-identifier' && selection.parent?.kind === 'assignment-statement' ? declarationType(ctx, resolveValueDeclaration(ctx, selection.identifier, selection, selection)) :
+										selection?.kind === 'local-identifier' && selection.context === 'type-expression' ? typeDeclarationType(ctx, resolveTypeDeclaration(selection.identifier, selection)) :
+											selection?.kind === 'plain-identifier' && selection.parent?.kind === 'name-and-type' && selection.parent.parent?.kind === 'function-expression' ? {
+												kind: 'property-type',
+												subject: {
+													kind: 'parameters-type',
+													subject: inferType(ctx, selection.parent.parent),
+												},
+												property: literal(selection.parent.parent.params.indexOf(selection.parent))
+											} :
+												// @ts-expect-error dsfghjdfgh
+												given(findParentWhere(selection, ast => ast.context === 'expression' || ast.context === 'type-expression'), ast => ast.context === 'expression' ? inferType(ast) : resolveType(ast))
 			)
 
 			if (type) {

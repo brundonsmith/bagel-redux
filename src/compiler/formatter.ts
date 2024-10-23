@@ -77,7 +77,7 @@ export const format = (ast: AST, { indentation, multiline }: FormatContext = { i
 		case 'import-declaration': return comments + `from ${f(ast.uri)} import { ${commaSeparated(ast.imports)} }`
 		case 'import-item': return comments + `${f(ast.name)}${ast.alias ? ` as ${f(ast.alias)}` : ''}`
 		case 'type-declaration': return comments + `${ast.exported ? 'export ' : ''}type ${f(ast.name)} = ${f(ast.type)}`
-		case 'const-declaration': return comments + `${ast.exported ? 'export ' : ''}const ${f(ast.declared)} = ${f(ast.value)}`
+		case 'variable-declaration': return comments + `${ast.exported ? 'export ' : ''}${ast.isConst ? 'const' : 'let'} ${f(ast.declared)} = ${f(ast.value)}`
 		case 'typeof-type-expression': return comments + `typeof ${f(ast.expression)}`
 		case 'function-type-expression': return comments + `(${commaSeparated(ast.params)}) => ${f(ast.returns)}`
 		case 'union-type-expression': return comments + `${multiline ? '\n' : ''}${ast.members.map((e, i) => multiline ? `${nextIndent}| ${fi(e)}\n` : ((i > 0 ? ' | ' : '') + f(e))).join('')}${multiline ? indent : ''}`
@@ -90,6 +90,7 @@ export const format = (ast: AST, { indentation, multiline }: FormatContext = { i
 		case 'number-type-expression': return comments + 'number'
 		case 'boolean-type-expression': return comments + 'boolean'
 		case 'unknown-type-expression': return comments + 'unknown'
+		case 'assignment-statement': return comments + `${f(ast.target)} = ${f(ast.value)}`
 		case 'markup-expression': {
 			let res = ''
 

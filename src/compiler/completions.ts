@@ -20,7 +20,7 @@ export const getCompletions = profile('getCompletions', (module: ModuleAST, posi
 		.map(decl => {
 			switch (decl.kind) {
 				case 'import-item': return { text: (decl.alias ?? decl.name).identifier }
-				case 'const-declaration': return { text: decl.declared.name.identifier }
+				case 'variable-declaration': return { text: decl.declared.name.identifier }
 				case 'name-and-type': return { text: decl.name.identifier }
 			}
 		})

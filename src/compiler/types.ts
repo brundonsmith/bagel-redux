@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
-import { AST, BinaryOperator, ConstDeclaration, Expression, GenericTypeParameter, ImportDeclaration, ImportItem, NameAndType, Spread, Statement, TypeDeclaration, TypeExpression, isValidIdentifier, parseModule } from './parser'
+import { AST, BinaryOperator, VariableDeclaration, Expression, GenericTypeParameter, ImportDeclaration, ImportItem, NameAndType, Spread, Statement, TypeDeclaration, TypeExpression, isValidIdentifier, parseModule } from './parser'
 import { input } from './parser-combinators'
 import { todo, zip, profile, given, exists } from './utils'
 import { Module, ModulePlatform } from './modules'
@@ -129,7 +129,11 @@ export const inferType = profile('inferType', (ctx: InferTypeContext, expression
 								: unknown
 				})),
 				returns: inferBodyType(ctx, expression.body),
-				assigns: false, // TODO
+				assigns: visitAST<boolean>(
+					false,
+					expression.body,
+					(ast, assigns) => assigns || ast.kind === 'assignment-statement'
+				),
 				awaitsOrDetaches: visitAST<boolean>(
 					false,
 					expression.body,
@@ -223,7 +227,7 @@ export const declarationType = (ctx: InferTypeContext, declaration: ValueCreator
 	switch (declaration?.kind) {
 		case 'import-item': {
 			const otherDeclaration = ctx.resolveModule((declaration.parent as ImportDeclaration).uri.value)?.ast.declarations
-				.find((d): d is ConstDeclaration => d.kind === 'const-declaration' && d.exported && d.declared.name.identifier === declaration.name.identifier)
+				.find((d): d is VariableDeclaration => d.kind === 'variable-declaration' && d.exported && d.declared.name.identifier === declaration.name.identifier)
 
 			if (otherDeclaration) {
 				return inferType(ctx, otherDeclaration.value)
@@ -231,7 +235,7 @@ export const declarationType = (ctx: InferTypeContext, declaration: ValueCreator
 				return poisoned // TODO: checker error if import name is found but doesn't exist in other module
 			}
 		}
-		case 'const-declaration': return inferType(ctx, declaration.value)
+		case 'variable-declaration': return inferType(ctx, declaration.value)
 		case 'name-and-type': {
 			if (declaration.type) {
 				return resolveType(ctx, declaration.type)
@@ -265,7 +269,7 @@ export const resolveValueDeclaration = (ctx: InferTypeContext, name: string, at:
 	valueDeclarationsInScope(ctx, at, from).find(decl => {
 		switch (decl.kind) {
 			case 'import-item': return (decl.alias ?? decl.name).identifier === name
-			case 'const-declaration': return decl.declared.name.identifier === name
+			case 'variable-declaration': return decl.declared.name.identifier === name
 			case 'name-and-type': return decl.name.identifier === name
 			case 'raw-named-type': return decl.name === name
 		}
@@ -290,7 +294,7 @@ export const valueDeclarationsInScope = (ctx: InferTypeContext, at: AST | undefi
 				...at.parent.declarations
 					.map(d =>
 						d.kind === 'import-declaration' ? d.imports
-							: d.kind === 'const-declaration' ? [d]
+							: d.kind === 'variable-declaration' ? [d]
 								: [])
 					.flat(),
 				...declarationsInParentScopes
@@ -305,7 +309,7 @@ export const valueDeclarationsInScope = (ctx: InferTypeContext, at: AST | undefi
 
 			const thisIndex = bodyStatements.indexOf(from as Statement)
 
-			const bodyDeclarations = bodyStatements.slice(0, thisIndex).filter(s => s.kind === 'const-declaration')
+			const bodyDeclarations = bodyStatements.slice(0, thisIndex).filter(s => s.kind === 'variable-declaration')
 
 			return [
 				...bodyDeclarations,
@@ -459,10 +463,10 @@ export const purity = (type: Type): 'async' | 'impure' | 'pure' | undefined => {
 	}
 }
 
-type ValueCreator = ImportItem | ConstDeclaration | NameAndType | { kind: 'raw-named-type', name: string, type: Type }
+type ValueCreator = ImportItem | VariableDeclaration | NameAndType | { kind: 'raw-named-type', name: string, type: Type }
 
 const getExpectedType = (ctx: ResolveTypeContext, expression: Expression): Type | undefined => {
-	if (expression.parent?.kind === 'const-declaration' && expression.parent.declared.type) {
+	if (expression.parent?.kind === 'variable-declaration' && expression.parent.declared.type) {
 		return resolveType(ctx, expression.parent.declared.type)
 	}
 	if (expression.parent?.kind === 'function-expression' && expression.parent.returnType) {
@@ -483,6 +487,10 @@ export const subsumationIssues = (ctx: TypeContext, { to: _to, from: _from }: { 
 	// TODO: Source info for nested issues, not just the top-level issue (which means source info for types)
 
 	const NO_ISSUES = [] as const
+
+	if (_to === _from) {
+		return NO_ISSUES
+	}
 
 	const to = simplifyType(ctx, _to)
 	const from = simplifyType(ctx, _from)

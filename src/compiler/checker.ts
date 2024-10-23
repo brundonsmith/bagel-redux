@@ -1,9 +1,9 @@
 import { visitAST } from './ast-utils'
 import { Module, ModulePlatform } from './modules'
-import { AST, ConstDeclaration, Expression, ModuleAST, source, span, TypeDeclaration, TypeExpression } from './parser'
+import { AST, VariableDeclaration, Expression, ModuleAST, source, span, TypeDeclaration, TypeExpression } from './parser'
 import { ParseSource } from './parser-combinators'
 import { displayType, inferType, resolveValueDeclaration, resolveType, subsumationIssues, subsumes, simplifyType, literal, TypeContext, Type, poisoned, resolveTypeDeclaration, unknown, inferBodyType, ResolveTypeContext, InferTypeContext, globalJSType, purity } from './types'
-import { exists, given, profile, zip } from './utils'
+import { exists, given, profile, todo, zip } from './utils'
 
 export type CheckerError = { message: string, src: ParseSource, details?: { message: string, src: ParseSource }[] }
 
@@ -46,8 +46,38 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 					}
 				}
 			}
-			case 'const-declaration': {
+			case 'variable-declaration': {
 				checkAssignment(ast.declared.type, ast.value)
+			} break
+			case 'assignment-statement': {
+				switch (ast.target.kind) {
+					case 'local-identifier': {
+						const destination = resolveValueDeclaration(ctx, ast.target.identifier, ast.target, ast.target)
+
+						const canAssign =
+							destination?.kind === 'variable-declaration' &&
+							!destination.isConst
+
+						// TODO: Allow assigning to imports if they point to global lets
+
+						if (!canAssign) {
+							const reason =
+								destination?.kind === 'variable-declaration' &&
+									destination.isConst ?
+									' because it\'s const' :
+									destination?.kind === 'name-and-type' &&
+										destination.parent?.kind === 'function-expression' ?
+										' because it\'s a function argument' :
+										''
+
+							error({
+								message: `Can't assign to ${source(ast.target.src)}${reason}`,
+								src: ast.src
+							})
+						}
+					} break
+					case 'property-access-expression': break // TODO
+				}
 			} break
 			case 'markup-expression': {
 				if (ast.tag.identifier !== ast.closingTag.identifier) {
@@ -298,11 +328,11 @@ export const valueScopeFromModule = (ctx: InferTypeContext, ast: ModuleAST): Typ
 			ast.declarations
 				.map(d => {
 					switch (d.kind) {
-						case 'const-declaration': return [[d.declared.name.identifier, inferType(ctx, d.value)]]
+						case 'variable-declaration': return [[d.declared.name.identifier, inferType(ctx, d.value)]]
 						case 'import-declaration': return d.imports
 							.map(i => {
 								const otherDeclaration = ctx.resolveModule(d.uri.value)?.ast.declarations
-									.find((d): d is ConstDeclaration => d.kind === 'const-declaration' && d.exported && d.declared.name.identifier === i.name.identifier)
+									.find((d): d is VariableDeclaration => d.kind === 'variable-declaration' && d.exported && d.declared.name.identifier === i.name.identifier)
 
 								if (otherDeclaration) {
 									const type = given(otherDeclaration?.declared.type, t => resolveType(ctx, t)) ?? inferType(ctx, otherDeclaration.value)

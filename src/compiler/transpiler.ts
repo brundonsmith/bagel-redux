@@ -33,7 +33,7 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 
 			return comments + `${ast.exported && !ctx.forBundle ? 'export ' : ''}type ${name} = ${trans(typ)}`
 		}
-		case 'const-declaration': return comments + `${ast.exported && !ctx.forBundle ? 'export ' : ''}const ${trans(ast.declared)} = ${trans(ast.value)}`
+		case 'variable-declaration': return comments + `${ast.exported && !ctx.forBundle ? 'export ' : ''}${ast.isConst ? 'const' : 'let'} ${trans(ast.declared)} = ${trans(ast.value)}`
 		case 'typeof-type-expression': return comments + `typeof ${trans(ast.expression)}`
 		case 'function-type-expression': return comments + `(${ast.params.map((p, i) => `_${i}: ${trans(p)}`).join(', ')}) => ${trans(ast.returns)}`
 		case 'union-type-expression': return comments + ast.members.map(trans).join(' | ')
@@ -46,6 +46,7 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 		case 'number-type-expression': return comments + 'number'
 		case 'boolean-type-expression': return comments + 'boolean'
 		case 'unknown-type-expression': return comments + 'unknown'
+		case 'assignment-statement': return comments + `${trans(ast.target)} = ${trans(ast.value)}`
 		case 'markup-expression': {
 			return `{
 				tag: '${ast.tag.identifier}',
@@ -57,7 +58,7 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 		case 'property-access-expression':
 			return comments + (
 				ast.subject.kind === 'local-identifier' && ast.subject.identifier === 'js' && ast.property.kind === 'string-literal'
-					? `global.${ast.property.value}`
+					? `globalThis.${ast.property.value}`
 					: `${trans(ast.subject)}[${trans(ast.property)}]`
 			)
 		case 'as-expression': return comments + `${trans(ast.expression)} as ${trans(ast.type)}`

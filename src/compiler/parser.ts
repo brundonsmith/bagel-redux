@@ -32,13 +32,13 @@ export type ModuleAST = {
 export type Declaration =
 	| ImportDeclaration
 	| TypeDeclaration
-	| ConstDeclaration
+	| VariableDeclaration
 	| BrokenSubtree
 
 export type ImportDeclaration = { kind: 'import-declaration', uri: StringLiteral, imports: ImportItem[] } & ASTInfo
 export type ImportItem = { kind: 'import-item', name: PlainIdentifier, alias: PlainIdentifier | undefined } & ASTInfo
 export type TypeDeclaration = { kind: 'type-declaration', exported: boolean, name: PlainIdentifier, type: TypeExpression } & ASTInfo
-export type ConstDeclaration = { kind: 'const-declaration', exported: boolean, declared: NameAndType, value: Expression } & ASTInfo
+export type VariableDeclaration = { kind: 'variable-declaration', exported: boolean, isConst: boolean, declared: NameAndType, value: Expression } & ASTInfo
 
 export type TypeExpression =
 	| GenericTypeExpression
@@ -122,7 +122,10 @@ export type Spread<T> = { kind: 'spread', spread: T } & ASTInfo
 
 export type Statement =
 	| Invocation
-	| ConstDeclaration
+	| VariableDeclaration
+	| AssignmentStatement
+
+export type AssignmentStatement = { kind: 'assignment-statement', target: LocalIdentifier | PropertyAccessExpression, value: Expression } & ASTInfo
 
 export type PlainIdentifier = { kind: 'plain-identifier', identifier: string } & ASTInfo
 
@@ -418,10 +421,13 @@ const typeDeclaration: BagelParser<TypeDeclaration> = profile('typeDeclaration',
 	})
 )(input))
 
-const constDeclaration: BagelParser<ConstDeclaration> = profile('constDeclaration', input => map(
+const variableDeclaration: BagelParser<VariableDeclaration> = profile('constDeclaration', input => map(
 	tuple(
 		optionalKeyword('export '), // TODO: Forbid in statement context
-		exact('const '),
+		oneOf(
+			exact('const '),
+			exact('let ')
+		),
 		whitespace,
 		required(nameAndType, () => 'Expected name'),
 		whitespace,
@@ -429,9 +435,10 @@ const constDeclaration: BagelParser<ConstDeclaration> = profile('constDeclaratio
 		whitespace,
 		required(expression(), () => 'Expected value'),
 	),
-	([exported, _0, _1, declared, _3, _4, _5, value], src) => ({
-		kind: 'const-declaration',
+	([exported, keyword, _0, declared, _3, _4, _5, value], src) => ({
+		kind: 'variable-declaration',
 		exported,
+		isConst: keyword === 'const ',
 		declared,
 		value,
 		src
@@ -441,7 +448,7 @@ const constDeclaration: BagelParser<ConstDeclaration> = profile('constDeclaratio
 const declaration: BagelParser<Declaration> = profile('declaration', oneOf(
 	importDeclaration,
 	typeDeclaration,
-	constDeclaration
+	variableDeclaration
 ))
 
 const nameAndType: BagelParser<NameAndType> = profile('nameAndType', input => map(
@@ -859,7 +866,27 @@ const functionExpression: BagelParser<FunctionExpression> = input => map(
 
 const statement: BagelParser<Statement> = input => oneOf(
 	filter(propertyAccessInvocationChain, parsed => parsed.kind === 'invocation') as BagelParser<Invocation>,
-	constDeclaration
+	variableDeclaration,
+	assignmentStatement
+)(input)
+
+const assignmentStatement: BagelParser<AssignmentStatement> = input => map(
+	tuple(
+		oneOf(
+			localIdentifier,
+			filter(propertyAccessInvocationChain, p => p.kind === 'property-access-expression')
+		),
+		whitespace,
+		exact('='),
+		whitespace,
+		expression()
+	),
+	([target, _0, _1, _2, value], src) => ({
+		kind: 'assignment-statement' as const,
+		target: target as PropertyAccessExpression,
+		value,
+		src
+	})
 )(input)
 
 const markupExpression: BagelParser<MarkupExpression> = input => map(

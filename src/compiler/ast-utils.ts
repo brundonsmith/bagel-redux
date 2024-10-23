@@ -21,7 +21,7 @@ export const findASTNodeAtPosition = profile('findASTNodeAtPosition', (position:
 		case 'import-declaration': childrenArray = [findIn(ast.uri), findIn(ast.imports)]; break
 		case 'import-item': childrenArray = [findIn(ast.name), ast.alias && findIn(ast.alias)]; break
 		case 'type-declaration': childrenArray = [findIn(ast.name), ast.type]; break
-		case 'const-declaration': childrenArray = [findIn(ast.declared), findIn(ast.value)]; break
+		case 'variable-declaration': childrenArray = [findIn(ast.declared), findIn(ast.value)]; break
 		case 'typeof-type-expression': childrenArray = [findIn(ast.expression)]; break
 		case 'function-type-expression': childrenArray = [findIn(ast.params), findIn(ast.returns)]; break
 		case 'union-type-expression': childrenArray = [findIn(ast.members)]; break
@@ -43,6 +43,7 @@ export const findASTNodeAtPosition = profile('findASTNodeAtPosition', (position:
 		case 'generic-type-expression': childrenArray = [ast.inner, findIn(ast.params)]; break
 		case 'generic-type-parameter': childrenArray = [ast.name, ast.extendz && findIn(ast.extendz)]; break
 		case 'parameterized-type-expression': childrenArray = [ast.inner, findIn(ast.params)]; break
+		case 'assignment-statement': childrenArray = [findIn(ast.target), findIn(ast.value)]; break
 
 		// atomic; we've gotten there
 		case 'string-type-expression':
@@ -94,7 +95,7 @@ export const visitAST = <TContext = never>(_ctx: TContext, ast: AST[] | AST | un
 				visit(ast.name)
 				visit(ast.type)
 			} break
-			case 'const-declaration': {
+			case 'variable-declaration': {
 				visit(ast.declared)
 				visit(ast.value)
 			} break
@@ -182,6 +183,10 @@ export const visitAST = <TContext = never>(_ctx: TContext, ast: AST[] | AST | un
 			case 'generic-type-parameter': {
 				visit(ast.name)
 				visit(ast.extendz)
+			} break
+			case 'assignment-statement': {
+				visit(ast.target)
+				visit(ast.value)
 			} break
 			case 'broken-subtree':
 			case 'string-type-expression':
