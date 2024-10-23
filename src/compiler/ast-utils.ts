@@ -64,3 +64,143 @@ export const findASTNodeAtPosition = profile('findASTNodeAtPosition', (position:
 	childrenArray.push(ast)
 	return childrenArray.filter(exists)[0]
 })
+
+export const visitAST = <TContext = never>(_ctx: TContext, ast: AST[] | AST | undefined, fn: (ast: AST, ctx: TContext) => TContext): TContext => {
+	let ctx = _ctx
+	const visit = (ast: AST[] | AST | undefined) => {
+		ctx = visitAST(ctx, ast, fn)
+	}
+
+	if (Array.isArray(ast)) {
+		for (const child of ast) {
+			visit(child)
+		}
+	} else if (ast != null) {
+		ctx = fn(ast, ctx)
+
+		switch (ast.kind) {
+			case 'module': {
+				visit(ast.declarations)
+			} break
+			case 'import-declaration': {
+				visit(ast.uri)
+				visit(ast.imports)
+			} break
+			case 'import-item': {
+				visit(ast.name)
+				visit(ast.alias)
+			} break
+			case 'type-declaration': {
+				visit(ast.name)
+				visit(ast.type)
+			} break
+			case 'const-declaration': {
+				visit(ast.declared)
+				visit(ast.value)
+			} break
+			case 'typeof-type-expression': {
+				visit(ast.expression)
+			} break
+			case 'function-type-expression': {
+				visit(ast.params)
+				visit(ast.returns)
+			} break
+			case 'union-type-expression': {
+				visit(ast.members)
+			} break
+			case 'markup-expression': {
+				visit(ast.tag)
+				visit(ast.closingTag)
+				visit(ast.props)
+				visit(ast.children)
+			} break
+			case 'markup-key-value': {
+				visit(ast.key)
+				visit(ast.value)
+			} break
+			case 'property-access-expression': {
+				visit(ast.subject)
+				visit(ast.property)
+			} break
+			case 'as-expression': {
+				visit(ast.expression)
+				visit(ast.type)
+			} break
+			case 'function-expression': {
+				visit(ast.params)
+				visit(ast.returnType)
+				visit(ast.body)
+			} break
+			case 'name-and-type': {
+				visit(ast.name)
+				visit(ast.type)
+			} break
+			case 'invocation': {
+				visit(ast.subject)
+				visit(ast.args)
+			} break
+			case 'binary-operation-expression': {
+				visit(ast.left)
+				visit(ast.right)
+			} break
+			case 'if-else-expression': {
+				visit(ast.cases)
+				visit(ast.defaultCase)
+			} break
+			case 'object-literal': {
+				visit(ast.entries)
+			} break
+			case 'key-value': {
+				visit(ast.key)
+				visit(ast.value)
+			} break
+			case 'array-literal': {
+				visit(ast.elements)
+			} break
+			case 'spread': {
+				visit(ast.spread)
+			} break
+			case 'range': {
+				visit(ast.start)
+				visit(ast.end)
+			} break
+			case 'if-else-expression-case': {
+				visit(ast.condition)
+				visit(ast.outcome)
+			} break
+			case 'parenthesis': {
+				visit(ast.inner)
+			} break
+			case 'generic-type-expression': {
+				visit(ast.inner)
+				visit(ast.params)
+			} break
+			case 'parameterized-type-expression': {
+				visit(ast.inner)
+				visit(ast.params)
+			} break
+			case 'generic-type-parameter': {
+				visit(ast.name)
+				visit(ast.extendz)
+			} break
+			case 'broken-subtree':
+			case 'string-type-expression':
+			case 'number-type-expression':
+			case 'boolean-type-expression':
+			case 'unknown-type-expression':
+			case 'string-literal':
+			case 'number-literal':
+			case 'boolean-literal':
+			case 'nil-literal':
+			case 'local-identifier':
+			case 'plain-identifier':
+			case 'comment':
+				break // nothing to check
+			default:
+				// @ts-expect-error kind should be of type `never`
+				ast.kind
+		}
+	}
+
+	return ctx
+}

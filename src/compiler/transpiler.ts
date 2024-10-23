@@ -64,9 +64,11 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 		case 'function-expression':
 			return comments + `(${ast.params.map(trans).join(', ')})${ast.returnType && ctx.outputTypes ? `: ${trans(ast.returnType)}` : ''} => ${Array.isArray(ast.body)
 				? '{\n' + ast.body.map(trans).join('\n') + '\n}'
-				: trans(ast.body)}`
+				: ast.body.kind === 'object-literal' || ast.body.kind === 'markup-expression'
+					? '(' + trans(ast.body) + ')'
+					: trans(ast.body)}`
 		case 'name-and-type': return comments + trans(ast.name) + (ast.type && ctx.outputTypes ? `: ${trans(ast.type)}` : '')
-		case 'invocation': return comments + `${trans(ast.subject)}(${ast.args.map(trans).join(', ')})`
+		case 'invocation': return comments + (ast.awaitOrDetach === 'await' ? 'await ' : '') + `${trans(ast.subject)}(${ast.args.map(trans).join(', ')})`
 		case 'binary-operation-expression': return comments + `${trans(ast.left)} ${ast.op} ${trans(ast.right)}`
 		case 'if-else-expression': return comments + `${ast.cases.map(trans).join('')} ${ast.defaultCase ? trans(ast.defaultCase) : NIL}`
 		case 'if-else-expression-case': return comments + `${trans(ast.condition)} ? ${trans(ast.outcome)} :`

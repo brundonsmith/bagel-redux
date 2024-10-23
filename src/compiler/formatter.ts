@@ -114,7 +114,7 @@ export const format = (ast: AST, { indentation, multiline }: FormatContext = { i
 			)
 		}
 		case 'name-and-type': return comments + f(ast.name) + (ast.type ? `: ${f(ast.type)}` : '')
-		case 'invocation': return comments + `${f(ast.subject)}(${commaSeparated(ast.args)})`
+		case 'invocation': return comments + (ast.awaitOrDetach != null ? ast.awaitOrDetach + ' ' : '') + `${f(ast.subject)}(${commaSeparated(ast.args)})`
 		case 'binary-operation-expression': return comments + `${f(ast.left)} ${ast.op} ${f(ast.right)}`
 		case 'if-else-expression': {
 			return comments + (multiline ? '\n' + nextIndent : '') + `${ast.cases.map(multiline ? fi : f).join(' else ')}${ast.defaultCase ? ` else {${multiline ? '\n' : ''}${multiline ? `${nextNextIndent}${fi(ast.defaultCase)}` : f(ast.defaultCase)}${multiline ? '\n' + nextIndent : ''}}` : ''}`

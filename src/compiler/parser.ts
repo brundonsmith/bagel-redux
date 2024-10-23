@@ -2,7 +2,7 @@ import { ParseSource, Parser, Precedence, alphaChar, backtrack, char, drop, exac
 import { ___memo } from './reactivity'
 import { logE, profile, todo } from './utils'
 
-export type ASTInfo = Readonly<{ src: ParseSource, parent?: AST, precedingComments?: Comment[], context?: 'expression' | 'type-expression' }>
+export type ASTInfo = { src: ParseSource, parent?: AST, precedingComments?: Comment[], context?: 'expression' | 'type-expression' }
 
 export type AST =
 	| ModuleAST
@@ -35,10 +35,10 @@ export type Declaration =
 	| ConstDeclaration
 	| BrokenSubtree
 
-export type ImportDeclaration = Readonly<{ kind: 'import-declaration', uri: StringLiteral, imports: ImportItem[] } & ASTInfo>
-export type ImportItem = Readonly<{ kind: 'import-item', name: PlainIdentifier, alias: PlainIdentifier | undefined } & ASTInfo>
-export type TypeDeclaration = Readonly<{ kind: 'type-declaration', exported: boolean, name: PlainIdentifier, type: TypeExpression } & ASTInfo>
-export type ConstDeclaration = Readonly<{ kind: 'const-declaration', exported: boolean, declared: NameAndType, value: Expression } & ASTInfo>
+export type ImportDeclaration = { kind: 'import-declaration', uri: StringLiteral, imports: ImportItem[] } & ASTInfo
+export type ImportItem = { kind: 'import-item', name: PlainIdentifier, alias: PlainIdentifier | undefined } & ASTInfo
+export type TypeDeclaration = { kind: 'type-declaration', exported: boolean, name: PlainIdentifier, type: TypeExpression } & ASTInfo
+export type ConstDeclaration = { kind: 'const-declaration', exported: boolean, declared: NameAndType, value: Expression } & ASTInfo
 
 export type TypeExpression =
 	| GenericTypeExpression
@@ -61,19 +61,19 @@ export type TypeExpression =
 	| UnknownTypeExpression
 	| BrokenSubtree
 
-export type GenericTypeExpression = Readonly<{ kind: 'generic-type-expression', inner: TypeExpression, params: GenericTypeParameter[] } & ASTInfo>
-export type GenericTypeParameter = Readonly<{ kind: 'generic-type-parameter', name: PlainIdentifier, extendz: TypeExpression | undefined } & ASTInfo>
-export type ParameterizedTypeExpression = Readonly<{ kind: 'parameterized-type-expression', inner: TypeExpression, params: TypeExpression[] } & ASTInfo>
-export type ParenthesisTypeExpression = Readonly<{ kind: 'parenthesis', inner: TypeExpression } & ASTInfo>
-export type ObjectTypeExpression = Readonly<{ kind: 'object-literal', entries: Array<Readonly<{ kind: 'key-value', key: TypeExpression, value: TypeExpression } & ASTInfo> | Readonly<{ kind: 'spread', spread: TypeExpression } & ASTInfo> | LocalIdentifier> } & ASTInfo>
-export type ArrayTypeExpression = Readonly<{ kind: 'array-literal', elements: Array<TypeExpression | Readonly<{ kind: 'spread', spread: TypeExpression } & ASTInfo>> } & ASTInfo>
-export type TypeofTypeExpression = Readonly<{ kind: 'typeof-type-expression', expression: Expression } & ASTInfo>
-export type FunctionTypeExpression = Readonly<{ kind: 'function-type-expression', pure: boolean, params: TypeExpression[], returns: TypeExpression } & ASTInfo>
-export type UnionTypeExpression = Readonly<{ kind: 'union-type-expression', members: TypeExpression[] } & ASTInfo>
-export type StringTypeExpression = Readonly<{ kind: 'string-type-expression' } & ASTInfo>
-export type NumberTypeExpression = Readonly<{ kind: 'number-type-expression' } & ASTInfo>
-export type BooleanTypeExpression = Readonly<{ kind: 'boolean-type-expression' } & ASTInfo>
-export type UnknownTypeExpression = Readonly<{ kind: 'unknown-type-expression' } & ASTInfo>
+export type GenericTypeExpression = { kind: 'generic-type-expression', inner: TypeExpression, params: GenericTypeParameter[] } & ASTInfo
+export type GenericTypeParameter = { kind: 'generic-type-parameter', name: PlainIdentifier, extendz: TypeExpression | undefined } & ASTInfo
+export type ParameterizedTypeExpression = { kind: 'parameterized-type-expression', inner: TypeExpression, params: TypeExpression[] } & ASTInfo
+export type ParenthesisTypeExpression = { kind: 'parenthesis', inner: TypeExpression } & ASTInfo
+export type ObjectTypeExpression = { kind: 'object-literal', entries: Array<({ kind: 'key-value', key: TypeExpression, value: TypeExpression } & ASTInfo) | ({ kind: 'spread', spread: TypeExpression } & ASTInfo) | LocalIdentifier> } & ASTInfo
+export type ArrayTypeExpression = { kind: 'array-literal', elements: Array<TypeExpression | { kind: 'spread', spread: TypeExpression } & ASTInfo> } & ASTInfo
+export type TypeofTypeExpression = { kind: 'typeof-type-expression', expression: Expression } & ASTInfo
+export type FunctionTypeExpression = { kind: 'function-type-expression', purity: 'async' | 'pure' | undefined, params: TypeExpression[], returns: TypeExpression } & ASTInfo
+export type UnionTypeExpression = { kind: 'union-type-expression', members: TypeExpression[] } & ASTInfo
+export type StringTypeExpression = { kind: 'string-type-expression' } & ASTInfo
+export type NumberTypeExpression = { kind: 'number-type-expression' } & ASTInfo
+export type BooleanTypeExpression = { kind: 'boolean-type-expression' } & ASTInfo
+export type UnknownTypeExpression = { kind: 'unknown-type-expression' } & ASTInfo
 
 export type Expression =
 	| MarkupExpression
@@ -93,43 +93,45 @@ export type Expression =
 	| LocalIdentifier
 	| BrokenSubtree
 
-export type MarkupExpression = Readonly<{ kind: 'markup-expression', tag: PlainIdentifier, closingTag: PlainIdentifier, props: MarkupKeyValue[], children: Expression[] } & ASTInfo>
-export type MarkupKeyValue = Readonly<{ kind: 'markup-key-value', key: PlainIdentifier, value: Expression } & ASTInfo>
-export type ParenthesisExpression = Readonly<{ kind: 'parenthesis', inner: Expression } & ASTInfo>
-export type ObjectExpression = Readonly<{ kind: 'object-literal', entries: Array<Readonly<{ kind: 'key-value', key: Expression, value: Expression } & ASTInfo> | Readonly<{ kind: 'spread', spread: Expression } & ASTInfo> | LocalIdentifier> } & ASTInfo>
-export type ArrayExpression = Readonly<{ kind: 'array-literal', elements: Array<Expression | Readonly<{ kind: 'spread', spread: Expression } & ASTInfo>> } & ASTInfo>
-export type PropertyAccessExpression = Readonly<{ kind: 'property-access-expression', subject: Expression, property: Expression } & ASTInfo>
-export type AsExpression = Readonly<{ kind: 'as-expression', expression: Expression, type: TypeExpression } & ASTInfo>
-export type FunctionExpression = Readonly<{ kind: 'function-expression', pure: boolean, params: NameAndType[], returnType: TypeExpression | undefined, body: Expression | Statement[] } & ASTInfo>
-export type NameAndType = Readonly<{ kind: 'name-and-type', name: PlainIdentifier, type: TypeExpression | undefined } & ASTInfo>
-export type Invocation = Readonly<{ kind: 'invocation', subject: Expression, args: Expression[] } & ASTInfo>
-export type BinaryOperationExpression = Readonly<{ kind: 'binary-operation-expression', left: Expression, op: BinaryOperator, right: Expression } & ASTInfo>
+export type MarkupExpression = { kind: 'markup-expression', tag: PlainIdentifier, closingTag: PlainIdentifier, props: MarkupKeyValue[], children: Expression[] } & ASTInfo
+export type MarkupKeyValue = { kind: 'markup-key-value', key: PlainIdentifier, value: Expression } & ASTInfo
+export type ParenthesisExpression = { kind: 'parenthesis', inner: Expression } & ASTInfo
+export type ObjectExpression = { kind: 'object-literal', entries: Array<({ kind: 'key-value', key: Expression, value: Expression } & ASTInfo) | ({ kind: 'spread', spread: Expression } & ASTInfo) | LocalIdentifier> } & ASTInfo
+export type ArrayExpression = { kind: 'array-literal', elements: Array<Expression | { kind: 'spread', spread: Expression } & ASTInfo> } & ASTInfo
+export type PropertyAccessExpression = { kind: 'property-access-expression', subject: Expression, property: Expression } & ASTInfo
+export type AsExpression = { kind: 'as-expression', expression: Expression, type: TypeExpression } & ASTInfo
+export type FunctionExpression = { kind: 'function-expression', purity: 'async' | 'pure' | undefined, params: NameAndType[], returnType: TypeExpression | undefined, body: Expression | Statement[] } & ASTInfo
+export type NameAndType = { kind: 'name-and-type', name: PlainIdentifier, type: TypeExpression | undefined } & ASTInfo
+export type Invocation = { kind: 'invocation', subject: Expression, args: Expression[], awaitOrDetach: 'await' | 'detach' | undefined } & ASTInfo
+export type BinaryOperationExpression = { kind: 'binary-operation-expression', left: Expression, op: BinaryOperator, right: Expression } & ASTInfo
 export type BinaryOperator = '+' | '-' | '*' | '/' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '&&' | '||' | '??'
-export type IfElseExpression = Readonly<{ kind: 'if-else-expression', cases: IfElseExpressionCase[], defaultCase: Expression | undefined } & ASTInfo>
-export type IfElseExpressionCase = Readonly<{ kind: 'if-else-expression-case', condition: Expression, outcome: Expression } & ASTInfo>
-export type StringLiteral = Readonly<{ kind: 'string-literal', value: string } & ASTInfo>
-export type NumberLiteral = Readonly<{ kind: 'number-literal', value: number } & ASTInfo>
-export type BooleanLiteral = Readonly<{ kind: 'boolean-literal', value: boolean } & ASTInfo>
-export type NilLiteral = Readonly<{ kind: 'nil-literal' } & ASTInfo>
-export type LocalIdentifier = Readonly<{ kind: 'local-identifier', identifier: string } & ASTInfo>
-export type Range = Readonly<{ kind: 'range', start: NumberLiteral | undefined, end: NumberLiteral | undefined } & ASTInfo>
+export type IfElseExpression = { kind: 'if-else-expression', cases: IfElseExpressionCase[], defaultCase: Expression | undefined } & ASTInfo
+export type IfElseExpressionCase = { kind: 'if-else-expression-case', condition: Expression, outcome: Expression } & ASTInfo
+export type StringLiteral = { kind: 'string-literal', value: string } & ASTInfo
+export type NumberLiteral = { kind: 'number-literal', value: number } & ASTInfo
+export type BooleanLiteral = { kind: 'boolean-literal', value: boolean } & ASTInfo
+export type NilLiteral = { kind: 'nil-literal' } & ASTInfo
+export type LocalIdentifier = { kind: 'local-identifier', identifier: string } & ASTInfo
+export type Range = { kind: 'range', start: NumberLiteral | undefined, end: NumberLiteral | undefined } & ASTInfo
 
-export type Parenthesis<T> = Readonly<{ kind: 'parenthesis', inner: T } & ASTInfo>
-export type ObjectLiteral<T> = Readonly<{ kind: 'object-literal', entries: Array<KeyValue<T> | Spread<T> | LocalIdentifier> } & ASTInfo>
-export type ArrayLiteral<T> = Readonly<{ kind: 'array-literal', elements: Array<T | Spread<T>> } & ASTInfo>
-export type KeyValue<T> = Readonly<{ kind: 'key-value', key: T, value: T } & ASTInfo>
-export type Spread<T> = Readonly<{ kind: 'spread', spread: T } & ASTInfo>
+export type Parenthesis<T> = { kind: 'parenthesis', inner: T } & ASTInfo
+export type ObjectLiteral<T> = { kind: 'object-literal', entries: Array<KeyValue<T> | Spread<T> | LocalIdentifier> } & ASTInfo
+export type ArrayLiteral<T> = { kind: 'array-literal', elements: Array<T | Spread<T>> } & ASTInfo
+export type KeyValue<T> = { kind: 'key-value', key: T, value: T } & ASTInfo
+export type Spread<T> = { kind: 'spread', spread: T } & ASTInfo
 
 export type Statement =
 	| Invocation
 	| ConstDeclaration
 
-export type PlainIdentifier = Readonly<{ kind: 'plain-identifier', identifier: string } & ASTInfo>
+export type PlainIdentifier = { kind: 'plain-identifier', identifier: string } & ASTInfo
 
-export type Comment = Readonly<{ kind: 'comment', comment: string, commentType: 'line' | 'block' } & ASTInfo>
-export type BrokenSubtree = Readonly<{ kind: 'broken-subtree', error: string } & ASTInfo>
+export type Comment = { kind: 'comment', comment: string, commentType: 'line' | 'block' } & ASTInfo
+export type BrokenSubtree = { kind: 'broken-subtree', error: string } & ASTInfo
 
 type BagelParser<T> = Parser<T, string>
+
+export const source = (src: ParseSource) => src.code.substring(src.start, src.end)
 
 const precedenceWithContext = <TParsers extends Parser<ASTInfo, unknown>[]>(
 	context: ASTInfo['context'],
@@ -549,7 +551,12 @@ const typeofTypeExpression: BagelParser<TypeofTypeExpression> = input => map(
 
 const functionTypeExpression: BagelParser<FunctionTypeExpression> = input => map(
 	tuple(
-		optionalKeyword('pure'),
+		optional(
+			oneOf(
+				map(exact('pure '), () => 'pure' as const),
+				map(exact('async '), () => 'async' as const),
+			)
+		),
 		whitespace,
 		exact('('),
 		whitespace,
@@ -563,9 +570,9 @@ const functionTypeExpression: BagelParser<FunctionTypeExpression> = input => map
 		whitespace,
 		typeExpression()
 	),
-	([pure, _0, _1, _2, params, _3, _4, _5, _6, _7, _8, _9, returns], src) => ({
+	([purity, _0, _1, _2, params, _3, _4, _5, _6, _7, _8, _9, returns], src) => ({
 		kind: 'function-type-expression',
-		pure,
+		purity,
 		params,
 		returns,
 		src
@@ -792,7 +799,13 @@ const asExpression: BagelParser<AsExpression> = input => map(
 
 const functionExpression: BagelParser<FunctionExpression> = input => map(
 	tuple(
-		optionalKeyword('pure'),
+		optional(
+			oneOf(
+				map(exact('pure '), () => 'pure' as const),
+				map(exact('async '), () => 'async' as const),
+			)
+		),
+		whitespace,
 		oneOf(
 			map(plainIdentifier, (name, src) => [{ kind: 'name-and-type' as const, name, type: undefined, src }]),
 			map(
@@ -834,9 +847,9 @@ const functionExpression: BagelParser<FunctionExpression> = input => map(
 			expression(),
 		)
 	),
-	([pure, params, _5, returnType, _6, _7, _8, body], src) => ({
+	([purity, _4, params, _5, returnType, _6, _7, _8, body], src) => ({
 		kind: 'function-expression',
-		pure,
+		purity,
 		params,
 		returnType,
 		body,
@@ -891,6 +904,15 @@ const markupExpression: BagelParser<MarkupExpression> = input => map(
 
 const propertyAccessInvocationChain: BagelParser<Invocation | PropertyAccessExpression> = input => map(
 	tuple(
+		optional(
+			map(
+				tuple(
+					oneOf(exact('await'), exact('detach')),
+					whitespace
+				),
+				([keyword, _0]) => keyword
+			)
+		),
 		expression(propertyAccessInvocationChain),
 		many1(
 			// @ts-expect-error dsfjkgh
@@ -932,7 +954,7 @@ const propertyAccessInvocationChain: BagelParser<Invocation | PropertyAccessExpr
 			),
 		)
 	),
-	([subject, _applications]) => {
+	([awaitOrDetach, subject, _applications], src) => {
 		const applications = _applications as Array<{ kind: 'invocation', args: Expression[], src: ParseSource } | { kind: 'property-access', property: Expression | PlainIdentifier, src: ParseSource }>
 		const applyToSubject = (subject: Expression, application: (typeof applications)[number]): Invocation | PropertyAccessExpression =>
 			application.kind === 'invocation'
@@ -940,6 +962,7 @@ const propertyAccessInvocationChain: BagelParser<Invocation | PropertyAccessExpr
 					kind: 'invocation',
 					subject,
 					args: application.args,
+					awaitOrDetach: undefined,
 					src: {
 						code: application.src.code,
 						start: subject.src.start,
@@ -963,9 +986,14 @@ const propertyAccessInvocationChain: BagelParser<Invocation | PropertyAccessExpr
 		const [first, ...rest] = applications
 
 		let current = applyToSubject(subject, first!)
-
 		for (const next of rest) {
 			current = applyToSubject(current, next)
+		}
+		current.src = src
+
+		// HACK
+		if (current.kind === 'invocation') {
+			current.awaitOrDetach = awaitOrDetach
 		}
 
 		return current

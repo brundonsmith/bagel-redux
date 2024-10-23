@@ -4,27 +4,28 @@ import { AST, BinaryOperator, ConstDeclaration, Expression, GenericTypeParameter
 import { input } from './parser-combinators'
 import { todo, zip, profile, given, exists } from './utils'
 import { Module, ModulePlatform } from './modules'
+import { visitAST } from './ast-utils'
 
 export type Type =
-	| Readonly<{ kind: 'function-type', params: Array<FunctionParam | SpreadType>, returns: Type, pure: boolean }>
-	| Readonly<{ kind: 'union-type', members: Type[] }>
-	| Readonly<{ kind: 'exclude-type', subject: Type, excluded: Type }>
-	| Readonly<{ kind: 'object-type', entries: Array<KeyValueType | SpreadType> | KeyValueType }>
-	| Readonly<{ kind: 'array-type', elements: Array<Type | SpreadType> | Type }>
+	| { kind: 'function-type', params: Array<FunctionParam | SpreadType>, returns: Type, assigns: boolean, awaitsOrDetaches: boolean, invokes: Type[] }
+	| { kind: 'union-type', members: Type[] }
+	| { kind: 'exclude-type', subject: Type, excluded: Type }
+	| { kind: 'object-type', entries: Array<KeyValueType | SpreadType> | KeyValueType }
+	| { kind: 'array-type', elements: Array<Type | SpreadType> | Type }
 	| StringType
-	| Readonly<{ kind: 'number-type', value: Range | number | undefined }>
-	| Readonly<{ kind: 'boolean-type', value: boolean | undefined }>
-	| Readonly<{ kind: 'nil-type' }>
-	| Readonly<{ kind: 'unknown-type' }>
-	| Readonly<{ kind: 'poisoned-type' }> // poisoned is the same as unknown, except it suppresses any further errors it would otherwise cause
+	| { kind: 'number-type', value: Range | number | undefined }
+	| { kind: 'boolean-type', value: boolean | undefined }
+	| { kind: 'nil-type' }
+	| { kind: 'unknown-type' }
+	| { kind: 'poisoned-type' } // poisoned is the same as unknown, except it suppresses any further errors it would otherwise cause
 	| BinaryOperationType
 	| IfElseType
-	| Readonly<{ kind: 'switch-type', cases: { condition: Type, outcome: Type }[], defaultCase: Type | undefined }>
+	| { kind: 'switch-type', cases: { condition: Type, outcome: Type }[], defaultCase: Type | undefined }
 	| InvocationType
-	| Readonly<{ kind: 'named-type', identifier: string }>
-	| Readonly<{ kind: 'generic-type', inner: Type, params: GenericParam[] }>
-	| Readonly<{ kind: 'parameterized-type', inner: Type, params: Type[] }>
-	| Readonly<{ kind: 'local-identifier-type', identifier: string }>
+	| { kind: 'named-type', identifier: string }
+	| { kind: 'generic-type', inner: Type, params: GenericParam[] }
+	| { kind: 'parameterized-type', inner: Type, params: Type[] }
+	| { kind: 'local-identifier-type', identifier: string }
 	| PropertyType
 	| KeysType
 	| ValuesType
@@ -35,15 +36,15 @@ type FunctionParam = { kind: 'function-param', name: string | undefined, type: T
 type GenericParam = { name: string, extendz: Type | undefined }
 type Range = { start: number | undefined, end: number | undefined }
 
-type StringType = Readonly<{ kind: 'string-type', value: string | undefined }>
-type InvocationType = Readonly<{ kind: 'invocation-type', subject: Type, args: Type[] }>
-type IfElseType = Readonly<{ kind: 'if-else-type', cases: { condition: Type, outcome: Type }[], defaultCase: Type | undefined }>
-type BinaryOperationType = Readonly<{ kind: 'binary-operation-type', left: Type, op: BinaryOperator, right: Type }>
-type PropertyType = Readonly<{ kind: 'property-type', subject: Type, property: Type }>
-type KeysType = Readonly<{ kind: 'keys-type', subject: Type }>
-type ValuesType = Readonly<{ kind: 'values-type', subject: Type }>
-type ParametersType = Readonly<{ kind: 'parameters-type', subject: Type }>
-type ReturnTypez = Readonly<{ kind: 'return-type', subject: Type }>
+type StringType = { kind: 'string-type', value: string | undefined }
+type InvocationType = { kind: 'invocation-type', subject: Type, args: Type[] }
+type IfElseType = { kind: 'if-else-type', cases: { condition: Type, outcome: Type }[], defaultCase: Type | undefined }
+type BinaryOperationType = { kind: 'binary-operation-type', left: Type, op: BinaryOperator, right: Type }
+type PropertyType = { kind: 'property-type', subject: Type, property: Type }
+type KeysType = { kind: 'keys-type', subject: Type }
+type ValuesType = { kind: 'values-type', subject: Type }
+type ParametersType = { kind: 'parameters-type', subject: Type }
+type ReturnTypez = { kind: 'return-type', subject: Type }
 
 // convenience
 export const union = (...members: Type[]): Type => ({ kind: 'union-type', members } as const)
@@ -128,7 +129,17 @@ export const inferType = profile('inferType', (ctx: InferTypeContext, expression
 								: unknown
 				})),
 				returns: inferBodyType(ctx, expression.body),
-				pure: false // TODO
+				assigns: false, // TODO
+				awaitsOrDetaches: visitAST<boolean>(
+					false,
+					expression.body,
+					(ast, awaitsOrDetaches) => awaitsOrDetaches || (ast.kind === 'invocation' && ast.awaitOrDetach != null)
+				),
+				invokes: visitAST<Type[]>(
+					[],
+					expression.body,
+					(ast, invokes) => ast.kind === 'invocation' ? [...invokes, infer(ast.subject)] : invokes
+				)
 			}
 		}
 		case 'invocation': return { kind: 'invocation-type', subject: infer(expression.subject), args: expression.args.map(infer) }
@@ -369,7 +380,9 @@ export const resolveType = (ctx: ResolveTypeContext, typeExpression: TypeExpress
 			kind: 'function-type',
 			params: typeExpression.params.map(resolve).map(type => ({ kind: 'function-param', name: undefined, type })),
 			returns: resolve(typeExpression.returns),
-			pure: typeExpression.pure
+			assigns: typeExpression.purity == null,
+			awaitsOrDetaches: typeExpression.purity === 'async',
+			invokes: []
 		}
 		case 'union-type-expression': return {
 			kind: 'union-type',
@@ -429,6 +442,20 @@ export const resolveType = (ctx: ResolveTypeContext, typeExpression: TypeExpress
 		case 'local-identifier': return { kind: 'named-type', identifier: typeExpression.identifier }
 		case 'unknown-type-expression': return unknown
 		case 'broken-subtree': return poisoned
+	}
+}
+
+export const purity = (type: Type): 'async' | 'impure' | 'pure' | undefined => {
+	if (type.kind === 'function-type') {
+		const invocationPurity = new Set(type.invokes.map(purity))
+
+		if (type.awaitsOrDetaches || invocationPurity.has('async')) {
+			return 'async'
+		} else if (type.assigns || invocationPurity.has('impure')) {
+			return 'impure'
+		} else {
+			return 'pure'
+		}
 	}
 }
 
@@ -1040,6 +1067,7 @@ export const simplifyType = (ctx: TypeContext, type: Type): Type => {
 				return {
 					...type,
 					params,
+					invokes: type.invokes.map(simplify)
 				}
 			} else {
 				const newCtx: TypeContext = {
@@ -1058,6 +1086,7 @@ export const simplifyType = (ctx: TypeContext, type: Type): Type => {
 				return {
 					...type,
 					params,
+					invokes: type.invokes.map(simplify),
 					returns: simplifyType(newCtx, type.returns),
 				}
 			}
@@ -1218,7 +1247,10 @@ export const displayType = (ctx: TypeContext, type: Type | SpreadType | KeyValue
 		case 'values-type': return `Values<${display(simplified.subject)}>`
 		case 'parameters-type': return `Parameters<${display(simplified.subject)}>`
 		case 'return-type': return `Return<${display(simplified.subject)}>`
-		case 'function-type': return `(${simplified.params.map(display).join(', ')}) => ${display(simplified.returns)}`
+		case 'function-type': {
+			const p = purity(simplified)
+			return (p !== 'impure' ? p + ' ' : '') + `(${simplified.params.map(display).join(', ')}) => ${display(simplified.returns)}`
+		}
 		case 'function-param': return display(simplified.type)
 		case 'union-type': return simplified.members.map(display).join(' | ')
 		case 'exclude-type': return `Exclude<${display(simplified.subject)}, ${display(simplified.excluded)}>`

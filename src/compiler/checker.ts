@@ -1,7 +1,8 @@
+import { visitAST } from './ast-utils'
 import { Module, ModulePlatform } from './modules'
-import { AST, ConstDeclaration, Expression, ModuleAST, span, TypeDeclaration, TypeExpression } from './parser'
+import { AST, ConstDeclaration, Expression, ModuleAST, source, span, TypeDeclaration, TypeExpression } from './parser'
 import { ParseSource } from './parser-combinators'
-import { displayType, inferType, resolveValueDeclaration, resolveType, subsumationIssues, subsumes, simplifyType, literal, TypeContext, Type, poisoned, resolveTypeDeclaration, unknown, inferBodyType, ResolveTypeContext, InferTypeContext, globalJSType } from './types'
+import { displayType, inferType, resolveValueDeclaration, resolveType, subsumationIssues, subsumes, simplifyType, literal, TypeContext, Type, poisoned, resolveTypeDeclaration, unknown, inferBodyType, ResolveTypeContext, InferTypeContext, globalJSType, purity } from './types'
 import { exists, given, profile, zip } from './utils'
 
 export type CheckerError = { message: string, src: ParseSource, details?: { message: string, src: ParseSource }[] }
@@ -15,19 +16,12 @@ export type CheckContext = {
 }
 
 export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): void => {
-	const typeContext = ctx.typeContext as TypeContext
-
-	const ch = (ast: AST[] | AST | undefined) => checkInner(ctx, ast)
-	const infer = (expression: Expression) => inferType(ctx, expression)
-	const resolve = (expression: TypeExpression) => resolveType(ctx, expression)
-
-	if (Array.isArray(ast)) {
-		for (const child of ast) {
-			ch(child)
-		}
-	} else if (ast != null) {
+	visitAST(ctx, ast, (ast, ctx) => {
+		const typeContext = ctx.typeContext as TypeContext
 		const { error } = ctx
 
+		const infer = (expression: Expression) => inferType(ctx, expression)
+		const resolve = (expression: TypeExpression) => resolveType(ctx, expression)
 		const checkAssignment = (destination: TypeExpression | undefined, value: Expression) => {
 			if (destination != null) {
 				const [firstIssue, ...rest] = subsumationIssues(typeContext, { to: resolve(destination), from: infer(value) })
@@ -44,59 +38,24 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 
 		switch (ast.kind) {
 			case 'module': {
-				const newCtx: CheckContext = {
+				return {
 					...ctx,
 					typeContext: {
 						typeScope: typeScopeFromModule(ctx, ast),
 						valueScope: valueScopeFromModule(ctx, ast)
 					}
 				}
-
-				checkInner(newCtx, ast.declarations)
-			} break
-			case 'import-declaration': {
-				ch(ast.uri)
-				ch(ast.imports)
-			} break
-			case 'import-item': {
-				ch(ast.name)
-				ch(ast.alias)
-			} break
-			case 'type-declaration': {
-				ch(ast.name)
-				ch(ast.type)
-			} break
+			}
 			case 'const-declaration': {
 				checkAssignment(ast.declared.type, ast.value)
-				ch(ast.declared)
-				ch(ast.value)
-			} break
-			case 'typeof-type-expression': {
-				ch(ast.expression)
-			} break
-			case 'function-type-expression': {
-				ch(ast.params)
-				ch(ast.returns)
-			} break
-			case 'union-type-expression': {
-				ch(ast.members)
 			} break
 			case 'markup-expression': {
-				ch(ast.tag)
-				ch(ast.closingTag)
-				ch(ast.props)
-				ch(ast.children)
-
 				if (ast.tag.identifier !== ast.closingTag.identifier) {
 					error({
 						message: `Closing tag ${ast.closingTag.identifier} doesn't match opening tag ${ast.tag.identifier}`,
 						src: ast.closingTag.src
 					})
 				}
-			} break
-			case 'markup-key-value': {
-				ch(ast.key)
-				ch(ast.value)
 			} break
 			case 'property-access-expression': {
 				const subjectType = infer(ast.subject)
@@ -114,9 +73,6 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 						})
 					}
 				}
-
-				ch(ast.subject)
-				ch(ast.property)
 			} break
 			case 'as-expression': {
 				const expressionType = infer(ast.expression)
@@ -129,9 +85,6 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 						details: issues.map(issue => ({ message: issue, src: ast.expression.src }))
 					})
 				}
-
-				ch(ast.expression)
-				ch(ast.type)
 			} break
 			case 'function-expression': {
 				// TODO: Lots of stuff
@@ -153,10 +106,7 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 					}
 				}
 
-				ch(ast.params)
-				ch(ast.returnType)
-
-				const newCtx: CheckContext = {
+				return {
 					...ctx,
 					typeContext: {
 						typeScope: ctx.typeContext?.typeScope ?? {},
@@ -168,13 +118,7 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 						}
 					}
 				}
-
-				checkInner(newCtx, ast.body)
-			} break
-			case 'name-and-type': {
-				ch(ast.name)
-				ch(ast.type)
-			} break
+			}
 			case 'invocation': {
 				const subjectType = simplifyType(typeContext, infer(ast.subject))
 
@@ -195,10 +139,31 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 							details: argumentIssues.map(issue => ({ message: issue, src: ast.src }))
 						})
 					}
-				}
 
-				ch(ast.subject)
-				ch(ast.args)
+					const p = purity(subjectType)
+					if (ast.awaitOrDetach == null && p === 'async') {
+						error({
+							message: `${source(ast.subject.src)} is async, and must have 'await' or 'detach' in front of it when called`,
+							src: ast.src
+						})
+					}
+
+					if (ast.awaitOrDetach != null && p !== 'async') {
+						error({
+							message: `Can't ${ast.awaitOrDetach} ${source(ast.subject.src)} because it isn't async`,
+							src: ast.src
+						})
+					}
+
+					if (ast.awaitOrDetach === 'detach' && ast.context === 'expression') {
+						error({
+							message: 'Can\'t detach inside an expression; must await to use the promised value',
+							src: ast.src
+						})
+					}
+
+					// TODO: If in a module-level const declaration, only pure functions allowed to be called
+				}
 			} break
 			case 'binary-operation-expression': {
 				const resultType = simplifyType(typeContext, infer(ast))
@@ -210,14 +175,8 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 						src: ast.src
 					})
 				}
-
-				ch(ast.left)
-				ch(ast.right)
 			} break
 			case 'if-else-expression': {
-				ch(ast.cases)
-				ch(ast.defaultCase)
-
 				for (const { condition } of ast.cases) {
 					const vals = [true, false] as const
 
@@ -232,8 +191,6 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 				}
 			} break
 			case 'object-literal': {
-				ch(ast.entries)
-
 				if (ast.context === 'type-expression') {
 					for (const entry of ast.entries) {
 						if (entry.kind === 'local-identifier') {
@@ -245,16 +202,6 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 					}
 				}
 			} break
-			case 'key-value': {
-				ch(ast.key)
-				ch(ast.value)
-			} break
-			case 'array-literal': {
-				ch(ast.elements)
-			} break
-			case 'spread': {
-				ch(ast.spread)
-			} break
 			case 'range': {
 				if (ast.start != null && ast.end != null && ast.start > ast.end) {
 					error({
@@ -262,13 +209,6 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 						src: ast.src
 					})
 				}
-
-				ch(ast.start)
-				ch(ast.end)
-			} break
-			case 'if-else-expression-case': {
-				ch(ast.condition)
-				ch(ast.outcome)
 			} break
 			case 'local-identifier': {
 				switch (ast.context) {
@@ -291,17 +231,7 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 				}
 
 			} break
-			case 'parenthesis': {
-				ch(ast.inner)
-			} break
-			case 'generic-type-expression': {
-				ch(ast.inner)
-				ch(ast.params)
-			} break
 			case 'parameterized-type-expression': {
-				ch(ast.inner)
-				ch(ast.params)
-
 				const innerType = simplifyType({ ...typeContext, preserveGenerics: true }, resolve(ast.inner))
 
 				if (innerType.kind !== 'generic-type') {
@@ -325,32 +255,16 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 					}
 				}
 			} break
-			case 'generic-type-parameter': {
-				ch(ast.name)
-				ch(ast.extendz)
-			} break
 			case 'broken-subtree': {
 				error({
 					message: ast.error,
 					src: ast.src
 				})
 			} break
-			case 'string-type-expression':
-			case 'number-type-expression':
-			case 'boolean-type-expression':
-			case 'unknown-type-expression':
-			case 'string-literal':
-			case 'number-literal':
-			case 'boolean-literal':
-			case 'nil-literal':
-			case 'plain-identifier':
-			case 'comment':
-				break // nothing to check
-			default:
-				// @ts-expect-error kind should be of type `never`
-				ast.kind
 		}
-	}
+
+		return ctx
+	})
 }
 
 export const typeScopeFromModule = (ctx: ResolveTypeContext, ast: ModuleAST): TypeContext['typeScope'] => {

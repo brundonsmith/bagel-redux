@@ -16,7 +16,8 @@ import {
 	TextDocumentSyncKind,
 	InitializeResult,
 	DocumentDiagnosticReportKind,
-	type DocumentDiagnosticReport
+	type DocumentDiagnosticReport,
+	InlayHint
 } from 'vscode-languageserver/node'
 
 import {
@@ -25,8 +26,8 @@ import {
 import { AST, parseModule } from './compiler/parser'
 import { check, typeScopeFromModule, valueScopeFromModule } from './compiler/checker'
 import { getCompletions } from './compiler/completions'
-import { InferTypeContext, Type, declarationType, displayType, inferType, literal, resolveType, resolveTypeDeclaration, resolveValueDeclaration, typeDeclarationType } from './compiler/types'
-import { findASTNodeAtPosition } from './compiler/ast-utils'
+import { InferTypeContext, Type, TypeContext, declarationType, displayType, inferType, literal, purity, resolveType, resolveTypeDeclaration, resolveValueDeclaration, simplifyType, typeDeclarationType } from './compiler/types'
+import { findASTNodeAtPosition, visitAST } from './compiler/ast-utils'
 import { exists, given } from './compiler/utils'
 import { text } from 'stream/consumers'
 import { fullPath, loadImported, loadModuleFile, Module, moduleFromPath, targetedFiles } from './compiler/modules'
@@ -159,30 +160,47 @@ connection.languages.inlayHint.on(async (params) => {
 			resolveModule: path => modules.get(fullPath(uri, path))
 		}
 
-		try {
-			return thisModule.ast.declarations
-				.map(decl => {
-					if (decl.kind === 'const-declaration') {
-						const type = inferType(ctx, decl.value)
+		const typeContext: TypeContext = {
+			typeScope: typeScopeFromModule(ctx, thisModule.ast),
+			valueScope: valueScopeFromModule(ctx, thisModule.ast)
+		}
 
-						if (decl.value.kind === 'function-expression') {
-							if (decl.value.returnType == null) {
-								return {
-									label: `: ${displayType({ typeScope: typeScopeFromModule(ctx, thisModule.ast), valueScope: valueScopeFromModule(ctx, thisModule.ast) }, { kind: 'return-type', subject: type })}`,
-									position: document.positionAt(given(decl.value.params[decl.value.params.length - 1], last => last.src.end + 1) ?? decl.value.src.start + 2) // HACK
+		try {
+			return visitAST<InlayHint[]>([], thisModule.ast, (ast, hints) => {
+				const newHints: InlayHint[] = []
+				switch (ast.kind) {
+					case 'const-declaration': {
+						const type = inferType(ctx, ast.value)
+
+						if (ast.value.kind === 'function-expression') {
+							if (ast.value.purity == null) {
+								const p = purity(simplifyType(typeContext, type))
+								if (p != null && p !== 'impure') {
+									newHints.push({
+										label: p + ' ',
+										position: document.positionAt(ast.value.src.start)
+									})
 								}
 							}
+
+							if (ast.value.returnType == null) {
+								newHints.push({
+									label: `: ${displayType(typeContext, { kind: 'return-type', subject: type })}`,
+									position: document.positionAt(given(ast.value.params[ast.value.params.length - 1], last => last.src.end + 1) ?? ast.value.src.start + 2) // HACK
+								})
+							}
 						} else {
-							if (decl.declared.type == null) {
-								return {
-									label: `: ${displayType({ typeScope: typeScopeFromModule(ctx, thisModule.ast), valueScope: valueScopeFromModule(ctx, thisModule.ast) }, type)}`,
-									position: document.positionAt(decl.declared.name.src.end)
-								}
+							if (ast.declared.type == null) {
+								newHints.push({
+									label: `: ${displayType(typeContext, type)}`,
+									position: document.positionAt(ast.declared.name.src.end)
+								})
 							}
 						}
 					}
-				})
-				.filter(exists)
+				}
+				return [...hints, ...newHints]
+			})
 		} catch (e) {
 			console.error(e)
 		}
