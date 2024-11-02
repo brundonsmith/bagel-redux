@@ -99,6 +99,7 @@ export const format = (ast: AST, { indentation, multiline }: FormatContext = { i
 		case 'unknown-type-expression': return comments + 'unknown'
 		case 'assignment-statement': return comments + `${f(ast.target)} = ${f(ast.value)}`
 		case 'return-statement': return comments + `return ${f(ast.value)}`
+		case 'for-loop-statement': return `for ${f(ast.element)} of ${f(ast.iterable)} ${f(ast.body)}`
 		case 'markup-expression': {
 			let res = ''
 

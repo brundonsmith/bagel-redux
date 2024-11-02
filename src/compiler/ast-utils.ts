@@ -48,6 +48,7 @@ export const findASTNodeAtPosition = profile('findASTNodeAtPosition', (position:
 		case 'parameterized-type-expression': childrenArray = [ast.inner, findIn(ast.params)]; break
 		case 'assignment-statement': childrenArray = [findIn(ast.target), findIn(ast.value)]; break
 		case 'return-statement': childrenArray = [findIn(ast.value)]; break
+		case 'for-loop-statement': childrenArray = [findIn(ast.element), findIn(ast.iterable), findIn(ast.body)]; break
 		case 'statement-block': childrenArray = [findIn(ast.statements)]; break
 
 		// atomic; we've gotten there
@@ -208,6 +209,11 @@ export const visitAST = <TContext = never>(_ctx: TContext, ast: AST[] | AST | un
 			} break
 			case 'return-statement': {
 				visit(ast.value)
+			} break
+			case 'for-loop-statement': {
+				visit(ast.element)
+				visit(ast.iterable)
+				visit(ast.body)
 			} break
 			case 'statement-block': {
 				visit(ast.statements)

@@ -140,6 +140,7 @@ export type Statement =
 	| ReturnStatement
 	| SwitchStatement
 	| IfElseStatement
+	| ForLoopStatement
 
 export type AssignmentStatement = { kind: 'assignment-statement', target: LocalIdentifier | PropertyAccessExpression, value: Expression } & ASTInfo
 export type ReturnStatement = { kind: 'return-statement', value: Expression } & ASTInfo
@@ -147,6 +148,7 @@ export type SwitchStatement = { kind: 'switch', value: Expression, cases: Switch
 export type SwitchStatementCase = { kind: 'switch-case', condition: TypeExpression, outcome: StatementBlock } & ASTInfo
 export type IfElseStatement = { kind: 'if-else', cases: IfElseStatementCase[], defaultCase: StatementBlock | undefined } & ASTInfo
 export type IfElseStatementCase = { kind: 'if-else-case', condition: Expression, outcome: StatementBlock } & ASTInfo
+export type ForLoopStatement = { kind: 'for-loop-statement', element: PlainIdentifier, iterable: Expression, body: StatementBlock } & ASTInfo
 
 export type StatementBlock = { kind: 'statement-block', statements: Statement[] } & ASTInfo
 
@@ -900,7 +902,8 @@ const statement: BagelParser<Statement> = input => oneOf(
 	assignmentStatement,
 	returnStatement,
 	switchStatement,
-	ifElseStatement
+	ifElseStatement,
+	forLoopStatement
 )(input)
 
 const statementBlock: BagelParser<StatementBlock> = map(
@@ -955,6 +958,28 @@ const returnStatement: BagelParser<ReturnStatement> = input => map(
 const switchStatement: BagelParser<Switch<StatementBlock>> = input => zwitch(statementBlock)(input)
 
 const ifElseStatement: BagelParser<IfElse<StatementBlock>> = input => ifElse(statementBlock)(input)
+
+const forLoopStatement: BagelParser<ForLoopStatement> = input => map(
+	tuple(
+		exact('for '),
+		whitespace,
+		plainIdentifier,
+		exact(' '),
+		whitespace,
+		exact('of '),
+		whitespace,
+		expression(),
+		whitespace,
+		statementBlock
+	),
+	([_0, _1, element, _2, _3, _4, _5, iterable, _7, body], src) => ({
+		kind: 'for-loop-statement' as const,
+		element,
+		iterable,
+		body,
+		src
+	})
+)(input)
 
 const markupExpression: BagelParser<MarkupExpression> = input => map(
 	tuple(

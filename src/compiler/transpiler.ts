@@ -1,5 +1,5 @@
 import { AST, Spread, StatementBlock, TypeExpression } from './parser'
-import { resolveType, simplifyType } from './types'
+import { inferType, purity, resolveType, simplifyType } from './types'
 import { profile, todo } from './utils'
 
 export type TranspileContext = {
@@ -50,6 +50,7 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 		case 'unknown-type-expression': return comments + 'unknown'
 		case 'assignment-statement': return comments + `${trans(ast.target)} = ${trans(ast.value)}`
 		case 'return-statement': return comments + `return ${trans(ast.value)}`
+		case 'for-loop-statement': return `for (const ${trans(ast.element)} of ${trans(ast.iterable)}) ${trans(ast.body)}`
 		case 'statement-block': return comments + '{\n' + ast.statements.map(trans).join(';\n') + '\n}'
 		case 'markup-expression': {
 			return `{
@@ -66,12 +67,14 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 					: `${trans(ast.subject)}[${trans(ast.property)}]`
 			)
 		case 'as-expression': return comments + `${trans(ast.expression)} as ${trans(ast.type)}`
-		case 'function-expression':
-			return comments + `(${ast.params.map(trans).join(', ')})${ast.returnType && ctx.outputTypes ? `: ${trans(ast.returnType)}` : ''} => ${Array.isArray(ast.body)
+		case 'function-expression': {
+			const isAsync = (ast.purity ?? purity(inferType({ target: 'cross-platform', resolveModule: () => undefined }, ast))) === 'async'
+			return comments + (isAsync ? 'async ' : '') + `(${ast.params.map(trans).join(', ')})${ast.returnType && ctx.outputTypes ? `: ${trans(ast.returnType)}` : ''} => ${Array.isArray(ast.body)
 				? '{\n' + ast.body.map(trans).join('\n') + '\n}'
 				: ast.body.kind === 'object-literal' || ast.body.kind === 'markup-expression'
 					? '(' + trans(ast.body) + ')'
 					: trans(ast.body)}`
+		}
 		case 'name-and-type': return comments + trans(ast.name) + (ast.type && ctx.outputTypes ? `: ${trans(ast.type)}` : '')
 		case 'invocation': return comments + (ast.awaitOrDetach === 'await' ? 'await ' : '') + `${trans(ast.subject)}(${ast.args.map(trans).join(', ')})`
 		case 'binary-operation-expression': return comments + `${trans(ast.left)} ${ast.op} ${trans(ast.right)}`
