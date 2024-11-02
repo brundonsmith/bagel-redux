@@ -1098,14 +1098,27 @@ const propertyAccessInvocationChain: BagelParser<Invocation | PropertyAccessExpr
 const binaryOpPrecedence = (ops: BinaryOperator[]) => {
 	const exactOps = oneOf(...ops.map(exact))
 	const fn: BagelParser<BinaryOperationExpression> = input => map(
-		tuple(expression(fn), whitespace, exactOps, whitespace, expression(fn)),
-		([left, _0, op, _1, right], src) => ({
-			kind: 'binary-operation-expression',
-			left,
-			op,
-			right,
-			src
-		} as const)
+		tuple(
+			expression(fn),
+			many1(
+				map(tuple(whitespace, exactOps, whitespace, expression(fn)), ([_0, op, _1, right]) => ({ op, right }))
+			),
+		),
+		([_left, applied]) => {
+			let left = _left
+
+			for (const { op, right } of applied) {
+				left = {
+					kind: 'binary-operation-expression' as const,
+					left,
+					op,
+					right,
+					src: span(left.src, right.src)
+				}
+			}
+
+			return left as BinaryOperationExpression
+		}
 	)(input)
 
 	return fn
