@@ -6,10 +6,10 @@ export const findASTNodeAtPosition = profile('findASTNodeAtPosition', (position:
 		return undefined
 	}
 
-	const findIn = (ast: AST | AST[]): AST | undefined => {
+	const findIn = (ast: AST | AST[] | undefined): AST | undefined => {
 		if (Array.isArray(ast)) {
 			return ast.map(findIn).filter(exists)[0]
-		} else {
+		} else if (ast != null) {
 			return findASTNodeAtPosition(position, ast)
 		}
 	}
@@ -28,6 +28,7 @@ export const findASTNodeAtPosition = profile('findASTNodeAtPosition', (position:
 		case 'parenthesis': childrenArray = [findIn(ast.inner)]; break
 		case 'object-literal': childrenArray = [findIn(ast.entries)]; break
 		case 'array-literal': childrenArray = [findIn(ast.elements)]; break
+		case 'array-type-expression': childrenArray = [findIn(ast.element), findIn(ast.length)]; break
 		case 'key-value': childrenArray = [findIn(ast.key), findIn(ast.value)]; break
 		case 'markup-expression': childrenArray = [findIn(ast.tag), findIn(ast.props), findIn(ast.children)]; break
 		case 'markup-key-value': childrenArray = [findIn(ast.key), findIn(ast.value)]; break
@@ -44,6 +45,7 @@ export const findASTNodeAtPosition = profile('findASTNodeAtPosition', (position:
 		case 'generic-type-parameter': childrenArray = [ast.name, ast.extendz && findIn(ast.extendz)]; break
 		case 'parameterized-type-expression': childrenArray = [ast.inner, findIn(ast.params)]; break
 		case 'assignment-statement': childrenArray = [findIn(ast.target), findIn(ast.value)]; break
+		case 'return-statement': childrenArray = [findIn(ast.value)]; break
 
 		// atomic; we've gotten there
 		case 'string-type-expression':
@@ -158,6 +160,10 @@ export const visitAST = <TContext = never>(_ctx: TContext, ast: AST[] | AST | un
 			case 'array-literal': {
 				visit(ast.elements)
 			} break
+			case 'array-type-expression': {
+				visit(ast.element)
+				visit(ast.length)
+			} break
 			case 'spread': {
 				visit(ast.spread)
 			} break
@@ -186,6 +192,9 @@ export const visitAST = <TContext = never>(_ctx: TContext, ast: AST[] | AST | un
 			} break
 			case 'assignment-statement': {
 				visit(ast.target)
+				visit(ast.value)
+			} break
+			case 'return-statement': {
 				visit(ast.value)
 			} break
 			case 'broken-subtree':

@@ -42,11 +42,13 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 		case 'parameterized-type-expression': return comments + `${trans(ast.inner)}<${ast.params.map(trans).join(', ')}>`
 		case 'key-value': return comments + `${trans(ast.key)}: ${trans(ast.value)}`
 		case 'spread': return comments + `...${trans(ast.spread)}`
+		case 'array-type-expression': return comments + trans(ast.element) + '[]'
 		case 'string-type-expression': return comments + 'string'
 		case 'number-type-expression': return comments + 'number'
 		case 'boolean-type-expression': return comments + 'boolean'
 		case 'unknown-type-expression': return comments + 'unknown'
 		case 'assignment-statement': return comments + `${trans(ast.target)} = ${trans(ast.value)}`
+		case 'return-statement': return comments + `return ${trans(ast.value)}`
 		case 'markup-expression': {
 			return `{
 				tag: '${ast.tag.identifier}',

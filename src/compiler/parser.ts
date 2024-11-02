@@ -47,7 +47,8 @@ export type TypeExpression =
 	| FunctionTypeExpression
 	| UnionTypeExpression
 	| ParenthesisTypeExpression
-	| ObjectTypeExpression
+	| ObjectLiteralTypeExpression
+	| ArrayLiteralTypeExpression
 	| ArrayTypeExpression
 	| StringTypeExpression
 	| NumberTypeExpression
@@ -65,8 +66,9 @@ export type GenericTypeExpression = { kind: 'generic-type-expression', inner: Ty
 export type GenericTypeParameter = { kind: 'generic-type-parameter', name: PlainIdentifier, extendz: TypeExpression | undefined } & ASTInfo
 export type ParameterizedTypeExpression = { kind: 'parameterized-type-expression', inner: TypeExpression, params: TypeExpression[] } & ASTInfo
 export type ParenthesisTypeExpression = { kind: 'parenthesis', inner: TypeExpression } & ASTInfo
-export type ObjectTypeExpression = { kind: 'object-literal', entries: Array<({ kind: 'key-value', key: TypeExpression, value: TypeExpression } & ASTInfo) | ({ kind: 'spread', spread: TypeExpression } & ASTInfo) | LocalIdentifier> } & ASTInfo
-export type ArrayTypeExpression = { kind: 'array-literal', elements: Array<TypeExpression | { kind: 'spread', spread: TypeExpression } & ASTInfo> } & ASTInfo
+export type ObjectLiteralTypeExpression = { kind: 'object-literal', entries: Array<({ kind: 'key-value', key: TypeExpression, value: TypeExpression } & ASTInfo) | ({ kind: 'spread', spread: TypeExpression } & ASTInfo) | LocalIdentifier> } & ASTInfo
+export type ArrayLiteralTypeExpression = { kind: 'array-literal', elements: Array<TypeExpression | { kind: 'spread', spread: TypeExpression } & ASTInfo> } & ASTInfo
+export type ArrayTypeExpression = { kind: 'array-type-expression', element: TypeExpression, length: TypeExpression | undefined } & ASTInfo
 export type TypeofTypeExpression = { kind: 'typeof-type-expression', expression: Expression } & ASTInfo
 export type FunctionTypeExpression = { kind: 'function-type-expression', purity: 'async' | 'pure' | undefined, params: TypeExpression[], returns: TypeExpression } & ASTInfo
 export type UnionTypeExpression = { kind: 'union-type-expression', members: TypeExpression[] } & ASTInfo
@@ -124,8 +126,10 @@ export type Statement =
 	| Invocation
 	| VariableDeclaration
 	| AssignmentStatement
+	| ReturnStatement
 
 export type AssignmentStatement = { kind: 'assignment-statement', target: LocalIdentifier | PropertyAccessExpression, value: Expression } & ASTInfo
+export type ReturnStatement = { kind: 'return-statement', value: Expression } & ASTInfo
 
 export type PlainIdentifier = { kind: 'plain-identifier', identifier: string } & ASTInfo
 
@@ -765,6 +769,23 @@ const objectLiteralTypeExpression = input => objectLiteral(typeExpression())(inp
 // @ts-expect-error dfsgdsgh
 const arrayLiteralTypeExpression = input => arrayLiteral(typeExpression())(input)
 
+const arrayTypeExpression: BagelParser<ArrayTypeExpression> = input => map(
+	tuple(
+		typeExpression(arrayTypeExpression),
+		exact('['),
+		whitespace,
+		optional(typeExpression(arrayTypeExpression)),
+		whitespace,
+		exact(']')
+	),
+	([element, _0, _1, length, _2, _3], src) => ({
+		kind: 'array-type-expression',
+		element,
+		length,
+		src
+	} as const)
+)(input)
+
 // @ts-expect-error sdfjhg
 const typeExpression: Precedence<BagelParser<TypeExpression>> = precedenceWithContext(
 	'type-expression',
@@ -773,6 +794,7 @@ const typeExpression: Precedence<BagelParser<TypeExpression>> = precedenceWithCo
 	typeofTypeExpression,
 	functionTypeExpression,
 	unionTypeExpression,
+	arrayTypeExpression,
 	parenthesisTypeExpression,
 	objectLiteralTypeExpression,
 	arrayLiteralTypeExpression,
@@ -839,18 +861,7 @@ const functionExpression: BagelParser<FunctionExpression> = input => map(
 		exact('=>'),
 		whitespace,
 		oneOf(
-			map(
-				tuple(
-					exact('{'),
-					manySep1(
-						preceded(statement),
-						tuple(whitespaceAndCommentsNoLinebreak, exact('\n'))
-					),
-					whitespaceAndComments,
-					exact('}'),
-				),
-				([_0, statements, _2, _3]) => statements
-			),
+			statementBlock,
 			expression(),
 		)
 	),
@@ -867,8 +878,22 @@ const functionExpression: BagelParser<FunctionExpression> = input => map(
 const statement: BagelParser<Statement> = input => oneOf(
 	filter(propertyAccessInvocationChain, parsed => parsed.kind === 'invocation') as BagelParser<Invocation>,
 	variableDeclaration,
-	assignmentStatement
+	assignmentStatement,
+	returnStatement
 )(input)
+
+const statementBlock: BagelParser<Statement[]> = map(
+	tuple(
+		exact('{'),
+		manySep1(
+			preceded(statement),
+			tuple(whitespaceAndCommentsNoLinebreak, exact('\n'))
+		),
+		whitespaceAndComments,
+		exact('}'),
+	),
+	([_0, statements, _2, _3]) => statements
+)
 
 const assignmentStatement: BagelParser<AssignmentStatement> = input => map(
 	tuple(
@@ -884,6 +909,19 @@ const assignmentStatement: BagelParser<AssignmentStatement> = input => map(
 	([target, _0, _1, _2, value], src) => ({
 		kind: 'assignment-statement' as const,
 		target: target as PropertyAccessExpression,
+		value,
+		src
+	})
+)(input)
+
+const returnStatement: BagelParser<ReturnStatement> = input => map(
+	tuple(
+		exact('return '),
+		whitespace,
+		expression()
+	),
+	([_0, _1, value], src) => ({
+		kind: 'return-statement' as const,
 		value,
 		src
 	})

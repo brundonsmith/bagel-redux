@@ -1,4 +1,5 @@
 import { AST, isValidIdentifier } from './parser'
+import { given } from './utils'
 
 export type FormatContext = {
 	indentation: number,
@@ -86,11 +87,13 @@ export const format = (ast: AST, { indentation, multiline }: FormatContext = { i
 		case 'parameterized-type-expression': return comments + `${f(ast.inner)}<${commaSeparated(ast.params)}>`
 		case 'key-value': return comments + `${ast.key.kind === 'string-literal' && isValidIdentifier(ast.key.value) ? ast.key.value : f(ast.key)}: ${f(ast.value)}`
 		case 'spread': return comments + `...${f(ast.spread)}`
+		case 'array-type-expression': return comments + f(ast.element) + '[' + (given(ast.length, f) ?? '') + ']'
 		case 'string-type-expression': return comments + 'string'
 		case 'number-type-expression': return comments + 'number'
 		case 'boolean-type-expression': return comments + 'boolean'
 		case 'unknown-type-expression': return comments + 'unknown'
 		case 'assignment-statement': return comments + `${f(ast.target)} = ${f(ast.value)}`
+		case 'return-statement': return comments + `return ${f(ast.value)}`
 		case 'markup-expression': {
 			let res = ''
 

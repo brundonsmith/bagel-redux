@@ -11,7 +11,7 @@ export type Type =
 	| { kind: 'union-type', members: Type[] }
 	| { kind: 'exclude-type', subject: Type, excluded: Type }
 	| { kind: 'object-type', entries: Array<KeyValueType | SpreadType> | KeyValueType }
-	| { kind: 'array-type', elements: Array<Type | SpreadType> | Type }
+	| { kind: 'array-type', elements: Array<Type | SpreadType> | { element: Type, length: Type | undefined } }
 	| StringType
 	| { kind: 'number-type', value: Range | number | undefined }
 	| { kind: 'boolean-type', value: boolean | undefined }
@@ -427,6 +427,13 @@ export const resolveType = (ctx: ResolveTypeContext, typeExpression: TypeExpress
 				)
 			)
 		}
+		case 'array-type-expression': return {
+			kind: 'array-type',
+			elements: {
+				element: resolve(typeExpression.element),
+				length: given(typeExpression.length, resolve)
+			}
+		}
 		case 'string-literal':
 		case 'number-literal':
 		case 'boolean-literal':
@@ -637,11 +644,14 @@ export const subsumationIssues = (ctx: TypeContext, { to: _to, from: _from }: { 
 				}
 			} else {
 				if (Array.isArray(from.elements)) {
-					const toElements = to.elements
+					const { element: toElement, length } = to.elements
+
+					// TODO: length
+
 					const subIssues = from.elements.map(from =>
 						from.kind === 'spread'
 							? todo()
-							: subsumation({ to: toElements, from })
+							: subsumation({ to: toElement, from })
 					).flat()
 
 					if (subIssues.length > 0) {
@@ -650,7 +660,9 @@ export const subsumationIssues = (ctx: TypeContext, { to: _to, from: _from }: { 
 						return NO_ISSUES
 					}
 				} else {
-					const subIssues = subsumation({ to: to.elements, from: from.elements })
+					const subIssues = subsumation({ to: to.elements.element, from: from.elements.element })
+
+					// TODO: length
 
 					if (subIssues.length > 0) {
 						return [basicSubsumationIssueMessage({ to, from }), ...subIssues]
@@ -738,7 +750,7 @@ const getPropertyType = (ctx: TypeContext, { subject: _subject, property: _prope
 						case 'undefined': return union(...subject.elements as Type[], nil)
 					}
 				} else {
-					return union(subject.elements, nil)
+					return union(subject.elements.element, nil)
 				}
 			} else if (property.kind === 'string-type' && property.value === 'length') {
 				if (Array.isArray(subject.elements)) {
@@ -831,7 +843,7 @@ const getValuesType = (ctx: TypeContext, { subject: _subject }: ValuesType): Typ
 							: e)
 				)
 			} else {
-				return union(subject.elements)
+				return union(subject.elements.element)
 			}
 		}
 		case 'string-type': {
@@ -1140,7 +1152,10 @@ export const simplifyType = (ctx: TypeContext, type: Type): Type => {
 						element.kind === 'spread'
 							? todo()
 							: simplify(element))
-					: simplify(type.elements)
+					: {
+						element: simplify(type.elements.element),
+						length: given(type.elements.length, simplify)
+					}
 			)
 		}
 		case 'if-else-type': {
@@ -1269,7 +1284,9 @@ export const displayType = (ctx: TypeContext, type: Type | SpreadType | KeyValue
 			const keyName = simplified.key.kind === 'string-type' ? simplified.key.value : undefined
 			return `${isValidIdentifier(keyName) ? keyName : display(simplified.key)}: ${display(simplified.value)}`
 		}
-		case 'array-type': return Array.isArray(simplified.elements) ? `[${simplified.elements.map(display).join(', ')}]` : display(simplified.elements) + '[]'
+		case 'array-type': return Array.isArray(simplified.elements)
+			? `[${simplified.elements.map(display).join(', ')}]`
+			: display(simplified.elements.element) + '[' + (given(simplified.elements.length, display) ?? '') + ']'
 		case 'spread': return `...${display(simplified.spread)}`
 		case 'string-type': return simplified.value != null ? `'${simplified.value}'` : 'string'
 		case 'number-type': return simplified.value == null ? 'number' : typeof simplified.value === 'number' ? String(simplified.value) : `${simplified.value.start ?? ''}..${simplified.value.end ?? ''}`
@@ -1290,7 +1307,19 @@ export const displayType = (ctx: TypeContext, type: Type | SpreadType | KeyValue
 
 export const inferBodyType = (ctx: InferTypeContext, body: Expression | Statement[]): Type => {
 	if (Array.isArray(body)) {
-		return nil // TODO
+		const returnTypes = visitAST<Type[]>([], body, (ast, returnTypes) => {
+			if (ast.kind === 'return-statement') {
+				return [...returnTypes, inferType(ctx, ast.value)]
+			} else {
+				return returnTypes
+			}
+		})
+
+		if (returnTypes.length > 0) {
+			return union(...returnTypes)
+		} else {
+			return nil
+		}
 	} else {
 		return inferType(ctx, body)
 	}
