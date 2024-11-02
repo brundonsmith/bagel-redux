@@ -15,9 +15,13 @@ export type AST =
 	| Spread<Expression>
 	| Statement
 	| ImportItem
-	| IfElseExpressionCase
+	| SwitchCase<Expression>
+	| SwitchCase<StatementBlock>
+	| IfElseCase<Expression>
+	| IfElseCase<StatementBlock>
 	| NameAndType
 	| GenericTypeParameter
+	| StatementBlock
 	| PlainIdentifier
 	| Comment
 	| MarkupKeyValue
@@ -84,6 +88,7 @@ export type Expression =
 	| FunctionExpression
 	| Invocation
 	| BinaryOperationExpression
+	| SwitchExpression
 	| IfElseExpression
 	| ParenthesisExpression
 	| ObjectExpression
@@ -102,13 +107,15 @@ export type ObjectExpression = { kind: 'object-literal', entries: Array<({ kind:
 export type ArrayExpression = { kind: 'array-literal', elements: Array<Expression | { kind: 'spread', spread: Expression } & ASTInfo> } & ASTInfo
 export type PropertyAccessExpression = { kind: 'property-access-expression', subject: Expression, property: Expression } & ASTInfo
 export type AsExpression = { kind: 'as-expression', expression: Expression, type: TypeExpression } & ASTInfo
-export type FunctionExpression = { kind: 'function-expression', purity: 'async' | 'pure' | undefined, params: NameAndType[], returnType: TypeExpression | undefined, body: Expression | Statement[] } & ASTInfo
+export type FunctionExpression = { kind: 'function-expression', purity: 'async' | 'pure' | undefined, params: NameAndType[], returnType: TypeExpression | undefined, body: Expression | StatementBlock } & ASTInfo
 export type NameAndType = { kind: 'name-and-type', name: PlainIdentifier, type: TypeExpression | undefined } & ASTInfo
 export type Invocation = { kind: 'invocation', subject: Expression, args: Expression[], awaitOrDetach: 'await' | 'detach' | undefined } & ASTInfo
 export type BinaryOperationExpression = { kind: 'binary-operation-expression', left: Expression, op: BinaryOperator, right: Expression } & ASTInfo
 export type BinaryOperator = '+' | '-' | '*' | '/' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '&&' | '||' | '??'
-export type IfElseExpression = { kind: 'if-else-expression', cases: IfElseExpressionCase[], defaultCase: Expression | undefined } & ASTInfo
-export type IfElseExpressionCase = { kind: 'if-else-expression-case', condition: Expression, outcome: Expression } & ASTInfo
+export type SwitchExpression = { kind: 'switch', value: Expression, cases: SwitchExpressionCase[], defaultCase: Expression | undefined } & ASTInfo
+export type SwitchExpressionCase = { kind: 'switch-case', condition: TypeExpression, outcome: Expression } & ASTInfo
+export type IfElseExpression = { kind: 'if-else', cases: IfElseExpressionCase[], defaultCase: Expression | undefined } & ASTInfo
+export type IfElseExpressionCase = { kind: 'if-else-case', condition: Expression, outcome: Expression } & ASTInfo
 export type StringLiteral = { kind: 'string-literal', value: string } & ASTInfo
 export type NumberLiteral = { kind: 'number-literal', value: number } & ASTInfo
 export type BooleanLiteral = { kind: 'boolean-literal', value: boolean } & ASTInfo
@@ -116,6 +123,10 @@ export type NilLiteral = { kind: 'nil-literal' } & ASTInfo
 export type LocalIdentifier = { kind: 'local-identifier', identifier: string } & ASTInfo
 export type Range = { kind: 'range', start: NumberLiteral | undefined, end: NumberLiteral | undefined } & ASTInfo
 
+export type Switch<T> = { kind: 'switch', value: Expression, cases: SwitchCase<T>[], defaultCase: T | undefined } & ASTInfo
+export type SwitchCase<T> = { kind: 'switch-case', condition: TypeExpression, outcome: T } & ASTInfo
+export type IfElse<T> = { kind: 'if-else', cases: IfElseCase<T>[], defaultCase: T | undefined } & ASTInfo
+export type IfElseCase<T> = { kind: 'if-else-case', condition: Expression, outcome: T } & ASTInfo
 export type Parenthesis<T> = { kind: 'parenthesis', inner: T } & ASTInfo
 export type ObjectLiteral<T> = { kind: 'object-literal', entries: Array<KeyValue<T> | Spread<T> | LocalIdentifier> } & ASTInfo
 export type ArrayLiteral<T> = { kind: 'array-literal', elements: Array<T | Spread<T>> } & ASTInfo
@@ -127,9 +138,17 @@ export type Statement =
 	| VariableDeclaration
 	| AssignmentStatement
 	| ReturnStatement
+	| SwitchStatement
+	| IfElseStatement
 
 export type AssignmentStatement = { kind: 'assignment-statement', target: LocalIdentifier | PropertyAccessExpression, value: Expression } & ASTInfo
 export type ReturnStatement = { kind: 'return-statement', value: Expression } & ASTInfo
+export type SwitchStatement = { kind: 'switch', value: Expression, cases: SwitchStatementCase[], defaultCase: StatementBlock | undefined } & ASTInfo
+export type SwitchStatementCase = { kind: 'switch-case', condition: TypeExpression, outcome: StatementBlock } & ASTInfo
+export type IfElseStatement = { kind: 'if-else', cases: IfElseStatementCase[], defaultCase: StatementBlock | undefined } & ASTInfo
+export type IfElseStatementCase = { kind: 'if-else-case', condition: Expression, outcome: StatementBlock } & ASTInfo
+
+export type StatementBlock = { kind: 'statement-block', statements: Statement[] } & ASTInfo
 
 export type PlainIdentifier = { kind: 'plain-identifier', identifier: string } & ASTInfo
 
@@ -879,10 +898,12 @@ const statement: BagelParser<Statement> = input => oneOf(
 	filter(propertyAccessInvocationChain, parsed => parsed.kind === 'invocation') as BagelParser<Invocation>,
 	variableDeclaration,
 	assignmentStatement,
-	returnStatement
+	returnStatement,
+	switchStatement,
+	ifElseStatement
 )(input)
 
-const statementBlock: BagelParser<Statement[]> = map(
+const statementBlock: BagelParser<StatementBlock> = map(
 	tuple(
 		exact('{'),
 		manySep1(
@@ -892,7 +913,11 @@ const statementBlock: BagelParser<Statement[]> = map(
 		whitespaceAndComments,
 		exact('}'),
 	),
-	([_0, statements, _2, _3]) => statements
+	([_0, statements, _2, _3], src) => ({
+		kind: 'statement-block',
+		statements,
+		src
+	})
 )
 
 const assignmentStatement: BagelParser<AssignmentStatement> = input => map(
@@ -926,6 +951,10 @@ const returnStatement: BagelParser<ReturnStatement> = input => map(
 		src
 	})
 )(input)
+
+const switchStatement: BagelParser<Switch<StatementBlock>> = input => zwitch(statementBlock)(input)
+
+const ifElseStatement: BagelParser<IfElse<StatementBlock>> = input => ifElse(statementBlock)(input)
 
 const markupExpression: BagelParser<MarkupExpression> = input => map(
 	tuple(
@@ -1090,48 +1119,105 @@ const ltgt = binaryOpPrecedence(['<=', '>=', '<', '>'])
 const plusOrMinus = binaryOpPrecedence(['+', '-'])
 const timesOrDiv = binaryOpPrecedence(['*', '/'])
 
-const ifElseExpression: BagelParser<IfElseExpression> = input => map(
+const zwitch = <T extends Expression | StatementBlock>(inner: BagelParser<T>): BagelParser<Switch<T>> => input => map(
 	tuple(
-		manySep1(ifCase, tuple(whitespace, exact('else '), whitespace)),
+		exact('switch '),
+		whitespace,
+		expression(),
+		whitespace,
+		exact('{'),
+		whitespace,
+		manySep1(switchCase(inner), whitespace),
 		whitespace,
 		optional(
 			map(
 				tuple(
-					exact('else'),
+					exact('default:'),
 					whitespace,
-					exact('{'),
-					preceded(expression()),
-					whitespace,
-					exact('}')
+					inner
 				),
-				([_0, _1, _2, outcome, _3, _4]) => outcome
+				([_0, _1, outcome]) => outcome
 			)
-		)
+		),
+		whitespace,
+		exact('}')
 	),
-	([cases, _0, defaultCase], src) => ({
-		kind: 'if-else-expression',
+	([_0, _1, value, _3, _4, _5, cases, _6, defaultCase, _7, _8], src) => ({
+		kind: 'switch' as const,
+		value,
 		cases,
 		defaultCase,
 		src
 	} as const)
 )(input)
 
-const ifCase: BagelParser<IfElseExpressionCase> = input => map(
+const switchCase = <T extends Expression | StatementBlock>(inner: BagelParser<T>): BagelParser<SwitchCase<T>> => map(
 	tuple(
-		exact('if '), // at least one space
-		preceded(expression()),
+		exact('case '), // at least one space
+		preceded(typeExpression()),
 		whitespace,
-		exact('{'),
-		preceded(expression()),
+		exact(':'),
 		whitespace,
-		exact('}'),
+		inner,
 	),
-	([_0, condition, _1, _2, outcome, _3, _4], src) => ({
-		kind: 'if-else-expression-case',
+	([_0, condition, _1, _2, _3, outcome], src) => ({
+		kind: 'switch-case',
 		condition,
 		outcome,
 		src
 	} as const)
+)
+
+const switchExpression: BagelParser<Switch<Expression>> = input => zwitch(expression())(input)
+
+const ifElse = <T extends Expression | StatementBlock>(inner: BagelParser<T>): BagelParser<IfElse<T>> => input => map(
+	tuple(
+		manySep1(ifCase(inner), tuple(whitespace, exact('else '), whitespace)),
+		whitespace,
+		optional(
+			map(
+				tuple(
+					exact('else'),
+					whitespace,
+					inner
+				),
+				([_0, _1, outcome]) => outcome
+			)
+		)
+	),
+	([cases, _0, defaultCase], src) => ({
+		kind: 'if-else' as const,
+		cases,
+		defaultCase,
+		src
+	} as const)
+)(input)
+
+const ifCase = <T extends Expression | StatementBlock>(inner: BagelParser<T>): BagelParser<IfElseCase<T>> => map(
+	tuple(
+		exact('if '), // at least one space
+		preceded(expression()),
+		whitespace,
+		inner,
+	),
+	([_0, condition, _1, outcome], src) => ({
+		kind: 'if-else-case',
+		condition,
+		outcome,
+		src
+	} as const)
+)
+
+const ifElseExpression: BagelParser<IfElse<Expression>> = input => ifElse(
+	map(
+		tuple(
+			exact('{'),
+			preceded(expression()),
+			whitespace,
+			exact('}')
+		),
+		([_0, outcome, _1, _2]) => outcome
+	)
 )(input)
 
 const spread = <T>(inner: BagelParser<T>): BagelParser<Spread<T>> => map(
@@ -1166,6 +1252,7 @@ export const expression: Precedence<BagelParser<Expression>> = precedenceWithCon
 	plusOrMinus,
 	timesOrDiv,
 	propertyAccessInvocationChain,
+	switchExpression,
 	ifElseExpression,
 	functionExpression,
 	parenthesisExpression,

@@ -1,4 +1,4 @@
-import { AST, isValidIdentifier } from './parser'
+import { AST, Expression, isValidIdentifier, StatementBlock } from './parser'
 import { given } from './utils'
 
 export type FormatContext = {
@@ -54,6 +54,11 @@ export const format = (ast: AST, { indentation, multiline }: FormatContext = { i
 			return `\n${ast.map(e => `${nextIndent}${fi(e)},\n`).join('')}${indent}`
 		}
 	}
+
+	const blockOrExprWithBrackets = (ast: Expression | StatementBlock) =>
+		ast.kind === 'statement-block'
+			? f(ast)
+			: `{${multiline ? '\n' : ''}${multiline ? `${nextNextIndent}${fi(ast)}` : f(ast)}${multiline ? '\n' + nextIndent : ''}}`
 
 	switch (ast.kind) {
 		case 'module': {
@@ -120,10 +125,17 @@ export const format = (ast: AST, { indentation, multiline }: FormatContext = { i
 		case 'name-and-type': return comments + f(ast.name) + (ast.type ? `: ${f(ast.type)}` : '')
 		case 'invocation': return comments + (ast.awaitOrDetach != null ? ast.awaitOrDetach + ' ' : '') + `${f(ast.subject)}(${commaSeparated(ast.args)})`
 		case 'binary-operation-expression': return comments + `${f(ast.left)} ${ast.op} ${f(ast.right)}`
-		case 'if-else-expression': {
-			return comments + (multiline ? '\n' + nextIndent : '') + `${ast.cases.map(multiline ? fi : f).join(' else ')}${ast.defaultCase ? ` else {${multiline ? '\n' : ''}${multiline ? `${nextNextIndent}${fi(ast.defaultCase)}` : f(ast.defaultCase)}${multiline ? '\n' + nextIndent : ''}}` : ''}`
+		case 'switch': return comments + 'switch ' + f(ast.value) + ' {' + `\n${ast.cases.map(e => `${nextIndent}${fi(e)}\n`).join('')}${indent}` + '}'
+		case 'switch-case': return comments + 'case ' + f(ast.condition) + ': ' + f(ast.outcome)
+		case 'if-else': {
+			return comments +
+				ast.cases.map(f).join(' else ') +
+				(ast.defaultCase
+					? ' else ' + blockOrExprWithBrackets(ast.defaultCase)
+					: '')
 		}
-		case 'if-else-expression-case': return comments + `if ${f(ast.condition)} {${multiline ? '\n' : ''}${multiline ? `${nextIndent}${fi(ast.outcome)}` : f(ast.outcome)}${multiline ? '\n' + indent : ''}}`
+		case 'if-else-case': return comments + `if ${f(ast.condition)} ` + blockOrExprWithBrackets(ast.outcome)
+		case 'statement-block': return comments + '{' + `\n${ast.statements.map(e => `${nextIndent}${fi(e)}\n`).join('')}${indent}` + '}'
 		case 'parenthesis': return comments + `(${f(ast.inner)})`
 		case 'object-literal': return comments + `{${!multiline ? ' ' : ''}${commaSeparated(ast.entries)}${!multiline ? ' ' : ''}}`
 		case 'array-literal': return comments + `[${commaSeparated(ast.elements)}]`

@@ -37,8 +37,10 @@ export const findASTNodeAtPosition = profile('findASTNodeAtPosition', (position:
 		case 'function-expression': childrenArray = [findIn(ast.params), ast.returnType && findIn(ast.returnType), findIn(ast.body)]; break
 		case 'invocation': childrenArray = [findIn(ast.subject), findIn(ast.args)]; break
 		case 'binary-operation-expression': childrenArray = [findIn(ast.left), findIn(ast.right)]; break
-		case 'if-else-expression': childrenArray = [findIn(ast.cases), ast.defaultCase && findIn(ast.defaultCase)]; break
-		case 'if-else-expression-case': childrenArray = [findIn(ast.condition), findIn(ast.outcome)]; break
+		case 'switch': childrenArray = [findIn(ast.value), findIn(ast.cases), ast.defaultCase && findIn(ast.defaultCase)]; break
+		case 'switch-case': childrenArray = [findIn(ast.condition), findIn(ast.outcome)]; break
+		case 'if-else': childrenArray = [findIn(ast.cases), ast.defaultCase && findIn(ast.defaultCase)]; break
+		case 'if-else-case': childrenArray = [findIn(ast.condition), findIn(ast.outcome)]; break
 		case 'name-and-type': childrenArray = [findIn(ast.name), ast.type && findIn(ast.type)]; break
 		case 'range': childrenArray = [ast.start && findIn(ast.start), ast.end && findIn(ast.end)]; break
 		case 'generic-type-expression': childrenArray = [ast.inner, findIn(ast.params)]; break
@@ -46,6 +48,7 @@ export const findASTNodeAtPosition = profile('findASTNodeAtPosition', (position:
 		case 'parameterized-type-expression': childrenArray = [ast.inner, findIn(ast.params)]; break
 		case 'assignment-statement': childrenArray = [findIn(ast.target), findIn(ast.value)]; break
 		case 'return-statement': childrenArray = [findIn(ast.value)]; break
+		case 'statement-block': childrenArray = [findIn(ast.statements)]; break
 
 		// atomic; we've gotten there
 		case 'string-type-expression':
@@ -146,7 +149,16 @@ export const visitAST = <TContext = never>(_ctx: TContext, ast: AST[] | AST | un
 				visit(ast.left)
 				visit(ast.right)
 			} break
-			case 'if-else-expression': {
+			case 'switch': {
+				visit(ast.value)
+				visit(ast.cases)
+				visit(ast.defaultCase)
+			} break
+			case 'switch-case': {
+				visit(ast.condition)
+				visit(ast.outcome)
+			} break
+			case 'if-else': {
 				visit(ast.cases)
 				visit(ast.defaultCase)
 			} break
@@ -171,7 +183,7 @@ export const visitAST = <TContext = never>(_ctx: TContext, ast: AST[] | AST | un
 				visit(ast.start)
 				visit(ast.end)
 			} break
-			case 'if-else-expression-case': {
+			case 'if-else-case': {
 				visit(ast.condition)
 				visit(ast.outcome)
 			} break
@@ -196,6 +208,9 @@ export const visitAST = <TContext = never>(_ctx: TContext, ast: AST[] | AST | un
 			} break
 			case 'return-statement': {
 				visit(ast.value)
+			} break
+			case 'statement-block': {
+				visit(ast.statements)
 			} break
 			case 'broken-subtree':
 			case 'string-type-expression':

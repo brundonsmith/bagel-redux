@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
-import { AST, BinaryOperator, VariableDeclaration, Expression, GenericTypeParameter, ImportDeclaration, ImportItem, NameAndType, Spread, Statement, TypeDeclaration, TypeExpression, isValidIdentifier, parseModule } from './parser'
+import { AST, BinaryOperator, VariableDeclaration, Expression, GenericTypeParameter, ImportDeclaration, ImportItem, NameAndType, Spread, Statement, TypeDeclaration, TypeExpression, isValidIdentifier, parseModule, StatementBlock } from './parser'
 import { input } from './parser-combinators'
 import { todo, zip, profile, given, exists } from './utils'
 import { Module, ModulePlatform } from './modules'
@@ -20,7 +20,7 @@ export type Type =
 	| { kind: 'poisoned-type' } // poisoned is the same as unknown, except it suppresses any further errors it would otherwise cause
 	| BinaryOperationType
 	| IfElseType
-	| { kind: 'switch-type', cases: { condition: Type, outcome: Type }[], defaultCase: Type | undefined }
+	| { kind: 'switch-type', value: Type, cases: { condition: Type, outcome: Type }[], defaultCase: Type | undefined }
 	| InvocationType
 	| { kind: 'named-type', identifier: string }
 	| { kind: 'generic-type', inner: Type, params: GenericParam[] }
@@ -148,7 +148,13 @@ export const inferType = profile('inferType', (ctx: InferTypeContext, expression
 		}
 		case 'invocation': return { kind: 'invocation-type', subject: infer(expression.subject), args: expression.args.map(infer) }
 		case 'binary-operation-expression': return { kind: 'binary-operation-type', left: infer(expression.left), op: expression.op, right: infer(expression.right) }
-		case 'if-else-expression': return {
+		case 'switch': return {
+			kind: 'switch-type',
+			value: infer(expression.value),
+			cases: expression.cases.map(({ condition, outcome }) => ({ condition: resolveType(ctx, condition), outcome: infer(outcome) })),
+			defaultCase: expression.defaultCase ? infer(expression.defaultCase) : undefined
+		}
+		case 'if-else': return {
 			kind: 'if-else-type',
 			cases: expression.cases.map(({ condition, outcome }) => ({ condition: infer(condition), outcome: infer(outcome) })),
 			defaultCase: expression.defaultCase ? infer(expression.defaultCase) : undefined
@@ -302,8 +308,8 @@ export const valueDeclarationsInScope = (ctx: InferTypeContext, at: AST | undefi
 		}
 		case 'function-expression': {
 			const bodyStatements = (
-				Array.isArray(at.parent.body)
-					? at.parent.body
+				at.parent.body.kind === 'statement-block'
+					? at.parent.body.statements
 					: []
 			)
 
@@ -1158,6 +1164,25 @@ export const simplifyType = (ctx: TypeContext, type: Type): Type => {
 					}
 			)
 		}
+		case 'switch-type': {
+			const defaultCase = given(type.defaultCase, simplify)
+			for (const { condition: _condition, outcome: _outcome } of type.cases) {
+				const condition = simplify(_condition)
+				const outcome = simplify(_outcome)
+
+				if (subsumes(ctx, { to: condition, from: type.value })) {
+					return outcome
+				}
+
+				// TODO: we can do more refinement here
+			}
+
+			if (defaultCase) {
+				return union(...type.cases.map(({ outcome }) => simplify(outcome)), defaultCase)
+			} else {
+				return union(...type.cases.map(({ outcome }) => simplify(outcome)))
+			}
+		}
 		case 'if-else-type': {
 			const defaultCase = given(type.defaultCase, simplify)
 			for (const { condition: _condition, outcome: _outcome } of type.cases) {
@@ -1248,7 +1273,6 @@ export const simplifyType = (ctx: TypeContext, type: Type): Type => {
 		case 'nil-type':
 		case 'unknown-type':
 		case 'poisoned-type':
-		case 'switch-type':
 			return type
 	}
 }
@@ -1305,8 +1329,8 @@ export const displayType = (ctx: TypeContext, type: Type | SpreadType | KeyValue
 	}
 }
 
-export const inferBodyType = (ctx: InferTypeContext, body: Expression | Statement[]): Type => {
-	if (Array.isArray(body)) {
+export const inferBodyType = (ctx: InferTypeContext, body: Expression | StatementBlock): Type => {
+	if (body.kind === 'statement-block') {
 		const returnTypes = visitAST<Type[]>([], body, (ast, returnTypes) => {
 			if (ast.kind === 'return-statement') {
 				return [...returnTypes, inferType(ctx, ast.value)]

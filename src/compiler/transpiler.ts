@@ -1,4 +1,4 @@
-import { AST, Spread, TypeExpression } from './parser'
+import { AST, Spread, StatementBlock, TypeExpression } from './parser'
 import { profile, todo } from './utils'
 
 export type TranspileContext = {
@@ -49,6 +49,7 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 		case 'unknown-type-expression': return comments + 'unknown'
 		case 'assignment-statement': return comments + `${trans(ast.target)} = ${trans(ast.value)}`
 		case 'return-statement': return comments + `return ${trans(ast.value)}`
+		case 'statement-block': return comments + '{\n' + ast.statements.map(trans).join(';\n') + '\n}'
 		case 'markup-expression': {
 			return `{
 				tag: '${ast.tag.identifier}',
@@ -73,8 +74,34 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 		case 'name-and-type': return comments + trans(ast.name) + (ast.type && ctx.outputTypes ? `: ${trans(ast.type)}` : '')
 		case 'invocation': return comments + (ast.awaitOrDetach === 'await' ? 'await ' : '') + `${trans(ast.subject)}(${ast.args.map(trans).join(', ')})`
 		case 'binary-operation-expression': return comments + `${trans(ast.left)} ${ast.op} ${trans(ast.right)}`
-		case 'if-else-expression': return comments + `${ast.cases.map(trans).join('')} ${ast.defaultCase ? trans(ast.defaultCase) : NIL}`
-		case 'if-else-expression-case': return comments + `${trans(ast.condition)} ? ${trans(ast.outcome)} :`
+		case 'switch': {
+			// TODO: lots
+
+			if (ast.context === 'expression') {
+				return comments + `${ast.cases.map(({ condition, outcome }) => `${trans(ast.value)} === ${trans(condition)} ? ${trans(outcome)} :`).join('')} ${ast.defaultCase ? trans(ast.defaultCase) : NIL}`
+			} else {
+				return comments +
+					ast.cases.map(({ condition, outcome }) => 'if (' + trans(ast.value) + '===' + trans(condition) + ') {\n' + (outcome as StatementBlock).statements.map(trans).join(';\n') + '\n}').join(' else ') +
+					(ast.defaultCase ? ' else ' + trans(ast.defaultCase) : '')
+			}
+		}
+		case 'switch-case': {
+			return todo()
+		}
+		case 'if-else': {
+			if (ast.context === 'expression') {
+				return comments + `${ast.cases.map(trans).join('')} ${ast.defaultCase ? trans(ast.defaultCase) : NIL}`
+			} else {
+				return comments + ast.cases.map(trans).join(' else ') + (ast.defaultCase ? ' else ' + trans(ast.defaultCase) : '')
+			}
+		}
+		case 'if-else-case': {
+			if (ast.context === 'expression') {
+				return comments + `${trans(ast.condition)} ? ${trans(ast.outcome)} :`
+			} else {
+				return comments + 'if (' + trans(ast.condition) + ') {\n' + (ast.outcome as StatementBlock).statements.map(trans).join(';\n') + '\n}'
+			}
+		}
 		case 'parenthesis': return comments + `(${trans(ast.inner)})`
 		case 'object-literal': {
 			if (ast.context === 'type-expression') {

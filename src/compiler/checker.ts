@@ -206,7 +206,10 @@ export const checkInner = (ctx: CheckContext, ast: AST[] | AST | undefined): voi
 					})
 				}
 			} break
-			case 'if-else-expression': {
+			case 'switch': {
+				// TODO: Check if there are any redundant cases
+			} break
+			case 'if-else': {
 				for (const { condition } of ast.cases) {
 					const vals = [true, false] as const
 

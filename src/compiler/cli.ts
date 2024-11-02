@@ -108,6 +108,8 @@ const bundleFrom = async (entry: string, { ignoreErrors, inCachePath }: { ignore
 
 		await writeFile(bundlePath, bundled)
 
+		console.log('Bundled to:', bundlePath)
+
 		return bundlePath
 	} else {
 		throw Error('Failed to parse ' + entry)
