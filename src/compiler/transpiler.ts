@@ -1,4 +1,5 @@
 import { AST, Spread, StatementBlock, TypeExpression } from './parser'
+import { resolveType, simplifyType } from './types'
 import { profile, todo } from './utils'
 
 export type TranspileContext = {
@@ -76,12 +77,13 @@ export const transpileInner = (ctx: TranspileContext, ast: AST): string => {
 		case 'binary-operation-expression': return comments + `${trans(ast.left)} ${ast.op} ${trans(ast.right)}`
 		case 'switch': {
 			// TODO: lots
+			const typeJson = (condition: TypeExpression) => JSON.stringify(simplifyType({ typeScope: {}, valueScope: {} }, resolveType({ target: 'cross-platform', resolveModule: () => undefined }, condition)))
 
 			if (ast.context === 'expression') {
-				return comments + `${ast.cases.map(({ condition, outcome }) => `${trans(ast.value)} === ${trans(condition)} ? ${trans(outcome)} :`).join('')} ${ast.defaultCase ? trans(ast.defaultCase) : NIL}`
+				return comments + `${ast.cases.map(({ condition, outcome }) => `___fits(${typeJson(condition)}, ${trans(ast.value)}) ? ${trans(outcome)} :`).join('')} ${ast.defaultCase ? trans(ast.defaultCase) : NIL}`
 			} else {
 				return comments +
-					ast.cases.map(({ condition, outcome }) => 'if (' + trans(ast.value) + '===' + trans(condition) + ') {\n' + (outcome as StatementBlock).statements.map(trans).join(';\n') + '\n}').join(' else ') +
+					ast.cases.map(({ condition, outcome }) => 'if (___fits(' + typeJson(condition) + ', ' + trans(ast.value) + ')) {\n' + (outcome as StatementBlock).statements.map(trans).join(';\n') + '\n}').join(' else ') +
 					(ast.defaultCase ? ' else ' + trans(ast.defaultCase) : '')
 			}
 		}

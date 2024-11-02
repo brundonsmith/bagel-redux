@@ -23,5 +23,23 @@ export const bundle = ({ entryModule, modules }: BundlerOptions): string => {
 			},
 			m.ast
 		))
-	return transpiled.join('\n') + '\n\nmain()' // naive for now
+	return intern + transpiled.join('\n') + '\n\nmain()' // naive for now
 }
+
+const intern = `
+const ___fits = (type, value) => {
+	switch (type.kind) {
+		case 'nil-type': return value == null
+		case 'unknown-type': return true
+		case 'boolean-type':
+		case 'number-type':
+		case 'string-type': {
+			if (type.value == null) {
+				return typeof value === type.kind.split('-')[0]
+			} else {
+				return value === type.value
+			}
+		}
+	}
+}
+`
